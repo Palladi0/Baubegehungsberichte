@@ -14,9 +14,9 @@
 
 | ID | Feature | Status | Spec | Created |
 |----|---------|--------|------|---------|
-| PROJ-1 | Benutzer-Authentifizierung | Planned | [PROJ-1](PROJ-1-authentifizierung.md) | 2026-04-21 |
+| PROJ-1 | Benutzer-Authentifizierung | Architected | [PROJ-1](PROJ-1-authentifizierung.md) | 2026-04-21 |
 | PROJ-2 | Projektverwaltung | Planned | [PROJ-2](PROJ-2-projektverwaltung.md) | 2026-04-21 |
-| PROJ-3 | Begehungs-Erfassung | Planned | [PROJ-3](PROJ-3-begehungs-erfassung.md) | 2026-04-21 |
+| PROJ-3 | Begehungs-Erfassung | Architected | [PROJ-3](PROJ-3-begehungs-erfassung.md) | 2026-04-21 |
 | PROJ-4 | Medien-Verwaltung | Planned | [PROJ-4](PROJ-4-medien-verwaltung.md) | 2026-04-21 |
 | PROJ-5 | Berichtsgenerierung | Planned | [PROJ-5](PROJ-5-berichtsgenerierung.md) | 2026-04-21 |
 | PROJ-6 | PDF-Export | Planned | [PROJ-6](PROJ-6-pdf-export.md) | 2026-04-21 |

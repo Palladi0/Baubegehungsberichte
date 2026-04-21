@@ -1,6 +1,6 @@
 # PROJ-3: Begehungs-Erfassung
 
-## Status: Planned
+## Status: Architected
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-21
 
@@ -63,7 +63,181 @@ Mitarbeiter erfassen Baustellenbegehungen über ein strukturiertes Webformular. 
 ---
 
 ## Tech Design (Solution Architect)
-_To be added by /architecture_
+
+### Gewählter Ansatz: Supabase Self-Hosted + Bright Sky API (DWD)
+
+Begehungen werden in Supabase PostgreSQL gespeichert (konsistent mit PROJ-1). Wetterdaten werden automatisch via **Bright Sky API** (basiert auf DWD-Daten, kostenlos, kein API-Key) abgerufen. KI-Extraktion läuft über die Anthropic Claude API — ausschließlich server-seitig.
+
+---
+
+### Komponentenstruktur
+
+```
+/begehungen  (Listenansicht)
++-- BegehungenHeader          (Titel + "Neue Begehung"-Button)
++-- BegehungenTabelle
+|   +-- Zeile pro Begehung    (Projekt | Datum | Status | Bearbeiter | Aktionen)
+|   +-- StatusBadge           (Entwurf = grau / Fertig = grün)
++-- LeererZustand             (Hinweis wenn noch keine Begehungen vorhanden)
+
+/begehungen/neu
+/begehungen/[id]/bearbeiten
++-- BegehungsFormular
+    +-- Abschnitt 1: Basisdaten
+    |   +-- ProjektAuswahl            (shadcn/ui Select — lädt zugeordnete Projekte)
+    |   +-- DatumFeld                 (shadcn/ui Input, type=date, Default: heute)
+    |   +-- UhrzeitFeld               (shadcn/ui Input, type=time, Default: jetzt)
+    |   +-- WetterAbrufenButton       ("Wetterdaten abrufen" — aktiv nach Projekt+Datum+Uhrzeit)
+    |
+    +-- Abschnitt 2: Wetter & Teilnehmer
+    |   +-- WetterAuswahl             (shadcn/ui Select: Sonnig/Bewölkt/Regnerisch/Schnee/Nebel)
+    |   |                             (wird automatisch vorausgefüllt via Bright Sky API)
+    |   +-- TemperaturFeld            (shadcn/ui Input, type=number, Einheit °C)
+    |   |                             (wird automatisch vorausgefüllt via Bright Sky API)
+    |   +-- TeilnehmerListe           (dynamisch erweiterbar)
+    |       +-- TeilnehmerZeile       (Name + Rolle + Löschen-Button pro Eintrag)
+    |       +-- HinzufügenButton
+    |
+    +-- Abschnitt 3: KI-Extraktion  (optionaler Hilfs-Workflow)
+    |   +-- FreitextTextarea          (shadcn/ui Textarea, min. 5 Zeilen, paste-fähig)
+    |   +-- ExtraktionButton          ("KI-Extraktion starten")
+    |   +-- FortschrittsAnzeige       (shadcn/ui Progress — sichtbar während API-Aufruf)
+    |   +-- FehlerToast               (bei API-Timeout oder wenn kein Feld erkannt)
+    |
+    +-- Abschnitt 4: Inhaltliche Felder  (manuell oder KI-befüllt)
+    |   +-- LeistungsstandFeld        (shadcn/ui Textarea — gelber Hintergrund wenn KI-befüllt)
+    |   +-- VorkommnisseFeld          (shadcn/ui Textarea — gelber Hintergrund wenn KI-befüllt)
+    |   +-- MaßnahmenFeld             (shadcn/ui Textarea — gelber Hintergrund wenn KI-befüllt)
+    |   +-- Bemerkungsfeld            (shadcn/ui Textarea — gelber Hintergrund wenn KI-befüllt)
+    |
+    +-- Abschnitt 5: Formular-Aktionen
+        +-- AutosaveIndikator         (Text: "Zuletzt gespeichert: vor 42 Sek.")
+        +-- DuplikatWarnung           (shadcn/ui Alert — wenn Projekt+Datum bereits existiert)
+        +-- BerichtWarnung            (shadcn/ui Alert — wenn Begehung bereits in Bericht)
+        +-- EntwurfSpeichernButton    (shadcn/ui Button, variant=outline)
+        +-- FertigSpeichernButton     (shadcn/ui Button, variant=default)
+```
+
+---
+
+### Datenmodell
+
+**Tabelle `begehungen`** — eine Zeile pro Baustellenbegehung:
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| ID | UUID | Eindeutige Kennung |
+| Projekt-ID | UUID | Fremdschlüssel → Tabelle `projekte` (PROJ-2) |
+| Bearbeiter-ID | UUID | Fremdschlüssel → Tabelle `nutzer_profile` (PROJ-1) |
+| Datum | Datum | Tag der Begehung |
+| Uhrzeit | Uhrzeit | Beginn der Begehung |
+| Wetterbedingungen | Text | Sonnig / Bewölkt / Regnerisch / Schnee / Nebel |
+| Temperatur | Zahl | In °C |
+| Leistungsstand | Langtext | Freitext-Beschreibung des Baufortschritts |
+| Besondere Vorkommnisse | Langtext | Freitext |
+| Nächste Schritte | Langtext | Freitext |
+| Allgemeine Bemerkungen | Langtext | Freitext |
+| Status | Enum | `Entwurf` oder `Fertig` |
+| Erstellt am | Zeitstempel | Automatisch gesetzt |
+| Zuletzt geändert | Zeitstempel | Automatisch aktualisiert |
+
+**Tabelle `begehung_teilnehmer`** — eine Zeile pro Person:
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| ID | UUID | Eindeutige Kennung |
+| Begehungs-ID | UUID | Fremdschlüssel → `begehungen` |
+| Name | Text | Vollständiger Name |
+| Rolle | Text | z. B. „Bauleiter", „Statiker" |
+
+> Teilnehmer als separate Tabelle: Die Anzahl ist variabel, und PROJ-5 (Berichtsgenerierung) muss sie einzeln aufführen.
+
+**Neue Anforderung an PROJ-2 (Projektverwaltung):** Projekte müssen einen **Standort** speichern (Adresse oder GPS-Koordinaten), damit der Wetterabruf funktioniert. Wenn nur eine Adresse hinterlegt ist, wird einmalig über **Nominatim (OpenStreetMap)** geocodiert und die Koordinaten im Projekt gespeichert.
+
+---
+
+### Technische Entscheidungen
+
+| Entscheidung | Gewählt | Warum |
+|---|---|---|
+| Datenpersistenz | Supabase PostgreSQL (Self-Hosted) | Konsistent mit PROJ-1; DSGVO-konform; Daten bleiben auf dem eigenen Server |
+| Wetter-API | Bright Sky API (brightsky.dev) | Basiert auf offiziellem DWD-Datenmaterial; kostenlos; kein API-Key; sauberes JSON mit stündlichen Werten |
+| Geocodierung | Nominatim (OpenStreetMap) | Kostenlos, kein API-Key, ausreichend genau für Baustellen in Deutschland |
+| KI-Extraktion | Anthropic Claude API (`claude-sonnet-4-6`) | Strukturierte JSON-Antwort; Wetter-/Temperaturfelder werden ausgenommen (bessere Quelle: Bright Sky) |
+| API-Key-Schutz | Alle externen API-Aufrufe ausschließlich in Next.js API Routes | Keys nie im Browser sichtbar |
+| Autosave-Backup | localStorage alle 60 Sekunden | Schutz vor Datenverlust bei Verbindungsabbruch |
+| Autosave final | Nur Supabase DB | localStorage ist Notfall-Backup, nicht Quelle der Wahrheit |
+| KI-Hervorhebung | CSS-Klasse `bg-yellow-100` auf KI-befüllten Feldern | Nutzer erkennt sofort welche Felder die KI gesetzt hat |
+| Verlassen-Schutz | `beforeunload`-Event im Browser | Nur aktiv wenn ungespeicherte Änderungen vorhanden |
+| Duplikat-Check | API prüft beim Speichern: gleiche Projekt-ID + Datum | Warnung als Toast, keine Blockierung |
+| Rollenzugriff | Mitarbeiter sehen nur eigene Begehungen; Admin sieht alle | Supabase Row-Level-Security (RLS) |
+
+**Bright Sky Mapping:**
+
+| Bright Sky `condition` | Formular-Anzeige |
+|---|---|
+| `clear` | Sonnig |
+| `cloudy` / `partly-cloudy` | Bewölkt |
+| `rain` / `sleet` | Regnerisch |
+| `snow` | Schnee |
+| `fog` | Nebel |
+| sonstige | Bewölkt (Fallback) |
+
+---
+
+### API-Routen (Next.js)
+
+| Route | Zweck | Berechtigung |
+|---|---|---|
+| `GET /api/begehungen` | Liste — Admin: alle; Mitarbeiter: nur eigene | Eingeloggt |
+| `POST /api/begehungen` | Neue Begehung anlegen (Entwurf oder Fertig) | Mitarbeiter, Admin |
+| `PUT /api/begehungen/[id]` | Begehung aktualisieren | Besitzer oder Admin |
+| `POST /api/begehungen/extract` | Freitext → Claude API → strukturierte JSON-Felder | Eingeloggt |
+| `GET /api/begehungen/wetter` | Wetterabruf via Bright Sky (lat, lon, datum, uhrzeit) | Eingeloggt |
+
+---
+
+### Infrastruktur-Übersicht
+
+```
+Browser (Next.js Client)
++-- React-Formular-State         (live während Eingabe)
++-- localStorage                 (Autosave-Backup alle 60 Sek.)
++-- API-Aufrufe
+    |
+    +-- GET /api/begehungen/wetter?lat=…&lon=…&datum=…&uhrzeit=…
+    |       |
+    |       v  Next.js API Route (Server)
+    |       +-- Bright Sky API (brightsky.dev / DWD-Daten)
+    |       +-- Mapping: condition → Sonnig/Bewölkt/Regnerisch/Schnee/Nebel
+    |       Fallback: Felder bleiben leer wenn API nicht erreichbar
+    |
+    +-- POST /api/begehungen/extract
+    |       |
+    |       v  Next.js API Route (Server)
+    |       +-- Auth-Prüfung via Supabase
+    |       +-- Anthropic Claude API  ← einzige Stelle mit API-Key
+    |       +-- Extrahiert: Teilnehmer, Leistungsstand, Vorkommnisse, Maßnahmen
+    |       +-- Wetter/Temperatur explizit ausgenommen (Bright Sky ist verlässlicher)
+    |
+    +-- GET/POST/PUT /api/begehungen
+            |
+            v  Next.js API Route (Server)
+            +-- Auth-Prüfung + RLS
+            +-- Supabase PostgreSQL (Docker, VPS)
+                +-- Tabelle: begehungen
+                +-- Tabelle: begehung_teilnehmer
+```
+
+---
+
+### Neue Abhängigkeiten
+
+| Paket | Zweck |
+|---|---|
+| `@anthropic-ai/sdk` | Offizieller Claude API Client (server-seitig, für KI-Extraktion) |
+
+Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via einfachem `fetch` aufgerufen. Alle weiteren Pakete (react-hook-form, Zod, shadcn/ui) sind bereits im Stack vorhanden.
 
 ## QA Test Results
 _To be added by /qa_
