@@ -44,7 +44,130 @@ Sprachnachrichten, die über WhatsApp eingehen, werden automatisch in deutschen 
 ---
 
 ## Tech Design (Solution Architect)
-_To be added by /architecture_
+
+### Kontext & Ausgangslage
+
+PROJ-8 hat folgende Pipeline aufgebaut:
+
+```
+Twilio Webhook
+  → incoming_messages (DB)
+  → media_jobs (Queue)
+  → Media Worker (lädt Datei herunter auf /var/uploads/...)
+  → incoming_messages.local_file_path gesetzt
+```
+
+PROJ-9 verlängert diese Pipeline um einen zweiten asynchronen Schritt — die Transkription.
+
+---
+
+### Datenfluss (End-to-End)
+
+```
+1. Twilio Webhook (bereits fertig)
+   └─→ incoming_messages (type=audio, status=received)
+   └─→ media_jobs (pending)
+
+2. Media Worker (bereits fertig, wird erweitert)
+   └─→ Datei heruntergeladen → status=stored, local_file_path gesetzt
+   └─→ NEU: transcription_jobs (pending) wird angelegt
+
+3. Transcription Worker (NEU)
+   └─→ Schickt Audiodatei an OpenAI Whisper API (language: "de")
+   └─→ Speichert Transkript in incoming_messages.transcript
+   └─→ Protokolliert Dauer + Kosten in transcription_jobs
+   └─→ Sendet WhatsApp-Bestätigung an Absender via Twilio
+   └─→ Bei Fehler: max. 3 Versuche, dann Admin-Alert
+
+4. Web-App (PROJ-3 Erweiterung)
+   └─→ Transkript anzeigen + editierbar machen
+
+5. Admin-Panel (Erweiterung)
+   └─→ Transkriptions-Log: Datum, Dauer, Status, Kosten
+```
+
+---
+
+### Datenbankänderungen
+
+**Erweiterung der bestehenden Tabelle `incoming_messages`** — 3 neue Felder:
+
+```
+incoming_messages (bestehend, wird erweitert):
++ transcript              Text des transkribierten Inhalts
++ transcript_status       Zustand: pending / processing / done / failed
++ audio_duration_seconds  Audiodauer in Sekunden (für Kosten-Tracking)
+```
+
+**Neue Tabelle `transcription_jobs`** — gleiche Struktur wie `media_jobs`:
+
+```
+transcription_jobs:
+- id
+- incoming_message_id    → incoming_messages (Fremdschlüssel)
+- status                 pending / processing / done / failed
+- attempts               Anzahl Versuche (max. 3)
+- duration_seconds       Whisper-berechnete Audiodauer
+- cost_usd               Berechnete Kosten ($0.006 × Minuten)
+- last_error             Fehlermeldung bei Scheitern
+- created_at / updated_at
+```
+
+---
+
+### Komponentenstruktur
+
+```
+Neu: src/lib/transcription-worker.ts
+  (parallel zu media-worker.ts — gleiche Queue-Logik, andere Aktion)
+
+Neu: src/app/api/admin/whatsapp/transcription-worker/route.ts
+  POST — startet eine Worker-Iteration (für Admin-UI + Cron)
+
+Erweiterung: src/lib/media-worker.ts
+  Nach erfolgreichem Audio-Download:
+  → transcription_jobs (pending) anlegen
+
+Erweiterung: Admin-Panel (PROJ-8 Seite)
+  + Tab "Transkriptions-Log"
+  + Spalten: Datum, Absender, Dauer, Status, Kosten
+
+Erweiterung: Begehungs-Erfassung (PROJ-3 Seite)
+  + Transkript-Feld (lesbar, editierbar)
+  + "Transkript bearbeiten"-Button → Textarea
+```
+
+---
+
+### Tech-Entscheidungen
+
+| Entscheidung | Warum |
+|---|---|
+| **Bestehende DB-Queue-Pattern** (keine externe Queue wie BullMQ) | Gleiche Struktur wie `media_jobs` — kein neues Infrastruktur-Wissen nötig, Self-hosted-kompatibel |
+| **OpenAI Whisper `whisper-1`** | Beste Erkennungsqualität für Deutsch + Fachsprache; Pay-per-Use passt zum Budget |
+| **Kein ffmpeg nötig (Phase 1)** | Whisper akzeptiert `.ogg` direkt — WhatsApp sendet standardmäßig ogg/Opus; ffmpeg als optionaler Fallback wenn nötig |
+| **Sprache fix auf `de`** | Kein automatisches Sprachdetektieren — verhindert falsche Erkennung bei Baulärm |
+| **WhatsApp-Rückmeldung** | Bestätigung an Mitarbeiter nach Transkription (erste 100 Zeichen) — schafft Vertrauen ins System |
+| **Kosten-Tracking in DB** | $0.006/min × Audiodauer — monatliche Übersicht im Admin-Panel ohne externes Tool |
+| **Claude für nachgelagerte Extraktion** | Claude (nicht Whisper) analysiert das fertige Transkript in PROJ-3 — klare Aufgabentrennung |
+
+---
+
+### Neue Abhängigkeiten
+
+| Paket | Zweck |
+|---|---|
+| `openai` | Whisper API Client |
+
+Kein weiteres Paket nötig — ffmpeg optional, nur bei Format-Problemen erforderlich.
+
+---
+
+### Neue Umgebungsvariablen
+
+```
+OPENAI_API_KEY=sk-...
+```
 
 ## QA Test Results
 _To be added by /qa_
