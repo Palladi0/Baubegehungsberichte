@@ -48,7 +48,97 @@ Mitarbeiter senden Sprachnachrichten und Fotos über einen zentralen WhatsApp-Ka
 ---
 
 ## Tech Design (Solution Architect)
-_To be added by /architecture_
+
+### Überblick
+Das Feature besteht aus drei Teilen: (1) einem HMAC-gesicherten Webhook-Empfänger, (2) einem asynchronen Hintergrund-Worker für den Medien-Download, und (3) einer Admin-UI zur Verwaltung von Telefonnummern und Monitoring.
+
+### Komponenten-Struktur
+
+```
+Backend (API-Schicht)
+└── POST /api/webhooks/twilio  (öffentlich, HMAC-signaturgeschützt)
+    ├── TwilioSignatureValidator     Prüft HMAC-Signatur — lehnt ungültige Requests ab
+    ├── MessageParser                Erkennt Nachrichtentyp: Text / Audio / Foto
+    ├── IdempotencyCheck             Prüft Twilio-Message-SID → ignoriert Duplikate
+    ├── SenderLookup                 Gleicht Absender-Telefon mit Mitarbeiter-DB ab
+    ├── MessageLogger                Schreibt Nachricht in incoming_messages-Tabelle
+    ├── JobDispatcher                Stellt Medien-Download in Job-Queue ein (async)
+    └── TwilioResponder              Sendet automatische WhatsApp-Antwort zurück
+
+Hintergrund-Worker (asynchron, polling alle 30 Sekunden)
+├── JobQueue-Poller               Liest offene Jobs aus media_jobs-Tabelle
+├── MediaDownloader               Lädt Datei von Twilio-URL herunter + speichert lokal
+└── RetryHandler                  Bis zu 3 Versuche bei Fehler; danach Admin-Alert
+
+Admin-Bereich (/admin/whatsapp)
+├── Webhook-URL-Anzeige           Konfigurierte Twilio-Webhook-URL mit Copy-Button
+├── Telefonnummer-Verwaltung
+│   ├── Tabelle: Name, Nummer, Status (aktiv/inaktiv), Datum
+│   ├── Dialog: Nummer hinzufügen (Mitarbeiter + Nummer)
+│   └── Löschen-Button pro Eintrag
+└── Nachrichten-Log               Letzte 100 eingegangene Nachrichten
+    ├── Spalten: Zeitstempel, Absender, Typ, Status, Fehler
+    └── Fehler-Badge bei fehlgeschlagenen Medien-Downloads
+```
+
+### Datenmodell
+
+**`phone_registrations`** — Mitarbeiter-Telefonnummer-Zuordnung
+- ID, user_id (FK → users), phone_number (E.164-Format), label, is_active, created_at
+
+**`incoming_messages`** — Protokoll aller eingehenden WhatsApp-Nachrichten
+- ID, twilio_message_sid (UNIQUE — Idempotenz-Schlüssel), sender_phone, user_id (nullable), message_type (text/audio/foto), text_content, twilio_media_url, local_file_path, status (received/downloading/stored/failed), received_at, processed_at, error_message
+
+**`media_jobs`** — Async Job-Queue für Medien-Download
+- ID, incoming_message_id (FK), status (pending/processing/done/failed), attempts, last_error, created_at, updated_at
+
+**Datei-Ablage:** `/var/uploads/whatsapp/YYYY-MM-DD/<typ>_<message-sid>.<ext>`
+
+### Datenfluss
+
+```
+Mitarbeiter → WhatsApp → Twilio Sandbox
+                              │ POST mit HMAC-Signatur
+                              ▼
+                  /api/webhooks/twilio
+                              │
+          1. Signatur prüfen  → ungültig? → 403
+          2. Duplikat-Check   → bekannt?  → 200 (ignorieren)
+          3. Absender-Lookup
+               │
+               ├── Unbekannt → Auto-Antwort: "Nicht registriert" + loggen
+               └── Bekannt   → Job einreihen + Auto-Antwort: "✓ Empfangen"
+                              → 200 OK an Twilio (< 1 Sekunde)
+
+Hintergrund-Worker (alle 30 Sek.)
+  1. Offene Jobs aus media_jobs lesen
+  2. Medien-Datei von Twilio herunterladen (mit Auth-Token)
+  3. Lokal speichern unter /var/uploads/whatsapp/YYYY-MM-DD/
+  4. Status → "stored"; bei Fehler: Retry (max. 3x) → Admin-Alert
+```
+
+### Technische Entscheidungen
+
+| Entscheidung | Gewählt | Begründung |
+|---|---|---|
+| Async Queue | DB-basierte Job-Queue (kein Redis) | Self-Hosted-Constraint; 10 Nutzer → kein Redis-Overhead nötig |
+| Hintergrund-Worker | Separater Node.js-Prozess (polling) | Einfach, kein zusätzlicher Dienst; Jobs bleiben bei Neustart erhalten |
+| Idempotenz | Twilio Message-SID als Unique-Key | Twilio wiederholt Webhooks → verhindert Duplikat-Verarbeitung |
+| Signatur-Validierung | Twilio HMAC-SHA1 (offizieller SDK) | Schützt den öffentlichen Endpunkt vor gefälschten Anfragen |
+| Telefonnummer-Format | E.164 (+49...) | Twilio sendet immer E.164 → einheitliches Format, kein Matching-Fehler |
+| HTTPS | Nginx-Reverse-Proxy + Let's Encrypt | Twilio-Anforderung — auf Infrastruktur-Ebene gelöst, nicht im App-Code |
+
+### Abhängigkeiten (neue Pakete)
+
+| Paket | Zweck |
+|---|---|
+| `twilio` | Offizielle SDK — Signatur-Validierung + Auto-Antworten senden |
+
+### Abgrenzung (nicht in PROJ-8)
+- Sprach-Transkription → PROJ-9
+- KI-Extraktion aus Text → PROJ-3
+- Automatische Projektzuordnung via Hashtag → PROJ-10
+- WhatsApp Business API (Produktion) → PROJ-11
 
 ## QA Test Results
 _To be added by /qa_
