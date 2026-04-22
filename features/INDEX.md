@@ -18,7 +18,7 @@
 | PROJ-2 | Projektverwaltung | Planned | [PROJ-2](PROJ-2-projektverwaltung.md) | 2026-04-21 |
 | PROJ-3 | Begehungs-Erfassung | Architected | [PROJ-3](PROJ-3-begehungs-erfassung.md) | 2026-04-21 |
 | PROJ-4 | Medien-Verwaltung | Architected | [PROJ-4](PROJ-4-medien-verwaltung.md) | 2026-04-21 |
-| PROJ-5 | Berichtsgenerierung | Planned | [PROJ-5](PROJ-5-berichtsgenerierung.md) | 2026-04-21 |
+| PROJ-5 | Berichtsgenerierung | Architected | [PROJ-5](PROJ-5-berichtsgenerierung.md) | 2026-04-21 |
 | PROJ-6 | PDF-Export | Planned | [PROJ-6](PROJ-6-pdf-export.md) | 2026-04-21 |
 | PROJ-7 | Berichte-Dashboard | Planned | [PROJ-7](PROJ-7-berichte-dashboard.md) | 2026-04-21 |
 | PROJ-8 | WhatsApp-Integration (Twilio Sandbox) | Planned | [PROJ-8](PROJ-8-whatsapp-integration.md) | 2026-04-21 |

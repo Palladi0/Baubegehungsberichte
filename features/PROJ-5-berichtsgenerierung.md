@@ -63,7 +63,133 @@ Das Kernstück des Systems: Ein strukturierter, mehrseitiger HTML-Bericht wird d
 ---
 
 ## Tech Design (Solution Architect)
-_To be added by /architecture_
+
+### Gewählter Ansatz: Serverseitiges HTML-Rendering + JSONB-Versionierung
+
+Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fotos` generiert (konsistent mit PROJ-3 und PROJ-4). Jeder gespeicherte Berichtsstand wird als **unveränderlicher JSONB-Snapshot** in Supabase abgelegt — kein Überschreiben, kein Datenverlust. Die Vorschau im Browser nutzt exakt dasselbe CSS wie der spätere PDF-Export (PROJ-6), sodass WYSIWYG garantiert ist.
+
+---
+
+### Komponentenstruktur
+
+```
+/berichte/neu  (Bericht-Generator — aufrufbar aus Dashboard PROJ-7)
++-- BerichtsGeneratorDialog          (shadcn/ui Dialog)
+    +-- ProjektAuswahl               (shadcn/ui Select — zeigt nur zugeordnete Projekte)
+    +-- DatumAuswahl                 (shadcn/ui Input, type=date, Default: heute)
+    +-- VerfügbareBegehungenHinweis  (shadcn/ui Alert — „3 Begehungen gefunden" / Fehlermeldung)
+    +-- GenerierenButton             (shadcn/ui Button — leitet weiter zu /berichte/[id])
+
+/berichte/[id]  (Berichtseditor / Vorschau)
++-- BerichtsEditorHeader
+|   +-- Projekttitel + Begehungsdatum
+|   +-- VersionsAnzeige             (z. B. „Version 3 — gespeichert 14:32 Uhr")
+|   +-- SpeichernButton             (shadcn/ui Button — speichert neuen Versions-Snapshot)
+|   +-- PDFExportButton             (→ PROJ-6, zunächst deaktiviert)
+|
++-- BerichtsVorschau                (scrollbarer Bereich, Print-CSS aktiv)
+    +-- Deckblatt                   (Seite 1 des Berichts)
+    |   +-- FirmenlogoBereich       (Bild aus Admin-Einstellung oder Platzhaltertext)
+    |   +-- BerichtsKopf            (Titel „Baustellenbegehung – [Projektname]", Projektnummer)
+    |   +-- MetaZeile               (Datum | Uhrzeit | Erstellt von | Erstellungsdatum)
+    |   +-- WetterZeile             (Icon + Bedingung + Temperatur)
+    |   +-- TeilnehmerListe         (nummerierte Liste: Name + Rolle)
+    |
+    +-- AbschnittListe              (Drag-and-Drop Container via @dnd-kit)
+        +-- BerichtsAbschnitt       (pro Begehung — sortierbar per Drag & Drop)
+            +-- AbschnittsHeader
+            |   +-- DragHandle      (visueller Anfasser zum Verschieben)
+            |   +-- TitelFeld       (shadcn/ui Input — editierbar, auto-befüllt)
+            |   +-- SichtbarkeitsToggle  (shadcn/ui Switch — blendet Abschnitt im Export aus)
+            +-- FreitextFeld        (shadcn/ui Textarea — Leistungsstand, Vorkommnisse, Maßnahmen)
+            +-- FotoGalerie         (2 Spalten, responsive)
+                +-- BerichtsFoto    (pro Foto im Abschnitt)
+                    +-- ThumbnailBild
+                    +-- BildunterschriftFeld  (shadcn/ui Input — editierbar)
+                    +-- FotoAusblendenButton  (shadcn/ui Switch — Foto aus Export ausblenden)
+```
+
+---
+
+### Datenmodell
+
+**Tabelle `berichte`** — ein Datensatz pro Bericht (Projekt + Datum):
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| ID | UUID | Eindeutige Kennung |
+| Projekt-ID | UUID | Fremdschlüssel → `projekte` (PROJ-2) |
+| Ersteller-ID | UUID | Fremdschlüssel → `nutzer_profile` (PROJ-1) |
+| Begehungs-Datum | Datum | Tag, für den der Bericht gilt |
+| Aktuelle Versions-Nr | Integer | Zeigt auf die zuletzt gespeicherte Version |
+| Erstellt am | Zeitstempel | Automatisch |
+| Zuletzt geändert | Zeitstempel | Automatisch bei Versions-Speicherung |
+
+**Tabelle `berichts_versionen`** — unveränderliche Snapshots jedes Speicherstands:
+
+| Feld | Typ | Beschreibung |
+|---|---|---|
+| ID | UUID | Eindeutige Kennung |
+| Bericht-ID | UUID | Fremdschlüssel → `berichte` |
+| Versions-Nr | Integer | 1, 2, 3 … (inkrementell pro Bericht) |
+| Erstellt am | Zeitstempel | Zeitpunkt der Speicherung |
+| Inhalt | JSONB | Vollständiger Snapshot (Deckblatt + Abschnitte + Fotos, siehe unten) |
+
+**JSONB-Snapshot-Struktur** (Inhalt einer Berichtsversion):
+```
+{
+  deckblatt: {
+    firmenlogo_url, projektname, projektnummer,
+    datum, uhrzeit, wetter, temperatur,
+    teilnehmer: [{ name, rolle }],
+    erstellt_am, ersteller_name
+  },
+  abschnitte: [
+    {
+      begehungs_id, titel, freitext, sichtbar, reihenfolge,
+      fotos: [{ foto_id, thumb_url, display_url, bildunterschrift, sichtbar, reihenfolge }]
+    }
+  ]
+}
+```
+
+> **Warum JSONB-Snapshot?** Ändert sich ein Begehungsdatensatz nachträglich, bleiben bereits gespeicherte Berichtsversionen unberührt — keine Datenbankinkonsistenzen, kein versehentliches Überschreiben von Freigaben. Das entspricht exakt der im Spec definierten Anforderung.
+
+---
+
+### API-Endpunkte
+
+| Methode | Pfad | Zweck |
+|---|---|---|
+| POST | `/api/reports/generate` | Erstellt neuen Bericht aus Begehungen (Datum + Projekt → Version 1) |
+| GET | `/api/reports` | Liste aller Berichte (für PROJ-7 Dashboard) |
+| GET | `/api/reports/[id]` | Bericht + aktuellste Version laden |
+| GET | `/api/reports/[id]/versions` | Alle Versionen eines Berichts auflisten |
+| GET | `/api/reports/[id]/versions/[nr]` | Bestimmte Version laden (Versionsverlauf) |
+| PUT | `/api/reports/[id]` | Aktuellen Bearbeitungsstand als neue Version speichern |
+| GET | `/api/reports/[id]/preview` | Serverseitig gerendertes HTML (für Druck / PROJ-6) |
+
+---
+
+### Technische Entscheidungen
+
+| Entscheidung | Gewählt | Warum |
+|---|---|---|
+| Rendering-Ort | Serverseitig (Next.js API Route) | PDF-Konsistenz: Browser-Rendering kann font-rendering und Seitenumbrüche nicht zuverlässig steuern; Server liefert identisches HTML für Vorschau und PDF-Export (PROJ-6) |
+| Versionierung | JSONB-Snapshot in Supabase | Unveränderliche Versionen ohne FK-Abhängigkeiten; freigegebene Berichte werden nie durch spätere Datenänderungen korrumpiert |
+| Drag & Drop | `@dnd-kit/core` + `@dnd-kit/sortable` | Leichtgewichtig, barrierefrei (ARIA), kein jQuery; speziell für React/Next.js konzipiert |
+| Print-CSS | Dediziertes `@media print`-Stylesheet | A4-Format, 2 cm Ränder, serifenlose Schrift (wie im Spec gefordert); identisch in Browser-Vorschau und PDF-Export |
+| Foto-Auslieferung in Berichten | URLs aus PROJ-4 API (`/api/media/file/[id]`) | Zugriffskontrolle bleibt erhalten; kein direkter Dateisystem-Zugriff im Frontend |
+| Firmenlogo-Konfiguration | Admin-Einstellung in Supabase `einstellungen`-Tabelle | Zentraler Speicherort; alle Berichte verwenden automatisch das aktuelle Logo |
+
+---
+
+### Paketabhängigkeiten
+
+| Paket | Zweck |
+|---|---|
+| `@dnd-kit/core` | Drag-and-Drop-Basisframework |
+| `@dnd-kit/sortable` | Sortierbare Listen (Abschnitte per Drag & Drop verschieben) |
 
 ## QA Test Results
 _To be added by /qa_
