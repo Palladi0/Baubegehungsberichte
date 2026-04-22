@@ -1,6 +1,6 @@
 # PROJ-8: WhatsApp-Integration (Twilio Sandbox)
 
-## Status: Planned
+## Status: In Progress
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-21
 
@@ -139,6 +139,39 @@ Hintergrund-Worker (alle 30 Sek.)
 - KI-Extraktion aus Text → PROJ-3
 - Automatische Projektzuordnung via Hashtag → PROJ-10
 - WhatsApp Business API (Produktion) → PROJ-11
+
+## Implementierungsnotizen
+
+### Erstellte Dateien
+- `supabase/migrations/20260422_proj8_whatsapp.sql` — 3 Tabellen: `phone_registrations`, `incoming_messages`, `media_jobs`
+- `src/lib/supabase.ts` — aktualisiert: `createServiceClient()` + `createServerClient()` hinzugefügt
+- `src/lib/twilio.ts` — Twilio-Client, Signatur-Validierung, TwiML-Helper
+- `src/lib/auth.ts` — `requireAdmin()` Hilfsfunktion für Admin-Routen
+- `src/lib/media-worker.ts` — Kernlogik des Medien-Download-Workers (wiederverwendbar)
+- `src/app/api/webhooks/twilio/route.ts` — POST-Webhook (öffentlich, HMAC-gesichert)
+- `src/app/api/admin/whatsapp/phone-registrations/route.ts` — GET + POST
+- `src/app/api/admin/whatsapp/phone-registrations/[id]/route.ts` — DELETE
+- `src/app/api/admin/whatsapp/messages/route.ts` — GET (letzte 100 Nachrichten)
+- `src/app/api/admin/whatsapp/worker/route.ts` — POST (manueller Worker-Trigger)
+- `scripts/media-worker.ts` — CLI-Worker (Polling alle 30 Sek., per systemd/Docker zu starten)
+
+### Tests
+- 11 Unit-Tests (Vitest), alle grün
+- Abdeckung: Signatur-Validierung, Idempotenz, bekannte/unbekannte Absender, Foto-Verarbeitung, Admin-Auth, Zod-Validierung, Duplikat-Schutz (409)
+
+### Benötigte Umgebungsvariablen
+```
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_WEBHOOK_URL=https://deine-domain.de/api/webhooks/twilio
+NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321
+NEXT_PUBLIC_SUPABASE_ANON_KEY=...
+SUPABASE_SERVICE_ROLE_KEY=...
+MEDIA_UPLOAD_PATH=/var/uploads/whatsapp
+```
+
+### Abweichungen vom Design
+- Keine: Implementierung entspricht dem Architektur-Design
 
 ## QA Test Results
 _To be added by /qa_
