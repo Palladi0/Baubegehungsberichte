@@ -15,7 +15,7 @@
 | ID | Feature | Status | Spec | Created |
 |----|---------|--------|------|---------|
 | PROJ-1 | Benutzer-Authentifizierung | Approved | [PROJ-1](PROJ-1-authentifizierung.md) | 2026-04-21 |
-| PROJ-2 | Projektverwaltung | In Progress | [PROJ-2](PROJ-2-projektverwaltung.md) | 2026-04-21 |
+| PROJ-2 | Projektverwaltung | Approved | [PROJ-2](PROJ-2-projektverwaltung.md) | 2026-04-21 |
 | PROJ-3 | Begehungs-Erfassung | In Progress | [PROJ-3](PROJ-3-begehungs-erfassung.md) | 2026-04-21 |
 | PROJ-4 | Medien-Verwaltung | In Progress | [PROJ-4](PROJ-4-medien-verwaltung.md) | 2026-04-21 |
 | PROJ-5 | Berichtsgenerierung | In Progress | [PROJ-5](PROJ-5-berichtsgenerierung.md) | 2026-04-21 |

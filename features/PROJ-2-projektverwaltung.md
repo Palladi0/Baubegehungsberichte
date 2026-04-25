@@ -137,7 +137,7 @@ Next.js App
 | 4 | Mitarbeiterzuordnung (beliebig viele hinzufügen/entfernen) | PASS | `POST /api/admin/projekte/[id]/mitarbeiter` + `DELETE .../mitarbeiter/[nutzerId]`; `ProjektMitarbeiterCard` mit Hinzufügen-Dialog und Entfernen-Button; behandelt UNIQUE-Verletzung (23505) als 409. |
 | 5 | Projektliste mit Suche + Filter aktiv/archiviert | PASS | `ProjektlisteCard.tsx`: client-seitige Suche über `name`/`nummer`/`kuerzel` (`useMemo`); Switch-Toggle steuert `?archiviert=true`. |
 | 6 | Detailseite zeigt Stammdaten + Mitarbeiter + Anzahl Begehungsberichte | PARTIAL | `admin/projekte/[id]/page.tsx` zeigt Stammdaten und Mitarbeiterliste; **die Anzahl Begehungsberichte wird nirgends angezeigt** — siehe BUG-001. |
-| 7 | Archivieren: Status wechselt; Daten bleiben; keine neuen Begehungen | PARTIAL | `PATCH /api/admin/projekte/[id]/archivieren` setzt `archived_at` korrekt; UI zeigt "Archiviert"-Badge und blendet Edit/Hinzufügen-Buttons aus. **`POST /api/begehungen` prüft jedoch nicht `archived_at`** — neue Begehungen sind weiterhin möglich. Siehe BUG-002. |
+| 7 | Archivieren: Status wechselt; Daten bleiben; keine neuen Begehungen | PASS | `PATCH /api/admin/projekte/[id]/archivieren` setzt `archived_at` korrekt; UI zeigt "Archiviert"-Badge. `POST /api/begehungen` prüft jetzt `archived_at` und gibt 422 zurück wenn archiviert (BUG-002 behoben). |
 | 8 | Archivierte Projekte standardmäßig ausgeblendet, per Filter sichtbar | PASS | API-Default `?archiviert=false` filtert auf `archived_at IS NULL`; Toggle setzt `?archiviert=true`. |
 | 9 | Mitarbeiter sehen nur zugeordnete Projekte; Admins alle | PASS | `GET /api/projekte`: Admin-Branch holt alle, Mitarbeiter-Branch joined `projekt_mitarbeiter`; RLS in `002_projekte.sql` als zweite Schicht (`projekte_select_admin` / `projekte_select_mitarbeiter`). Test deckt beide Pfade ab. |
 
@@ -149,7 +149,7 @@ Next.js App
 
 | Edge Case | Status | Notiz |
 |-----------|--------|-------|
-| Projekt mit bestehenden Berichten archivieren | PARTIAL | Archivierung selbst funktioniert; **Backend verhindert keine neuen Begehungen** auf archiviertem Projekt (BUG-002). |
+| Projekt mit bestehenden Berichten archivieren | PASS | Archivierung funktioniert; `POST /api/begehungen` verhindert nun neue Begehungen auf archiviertem Projekt (BUG-002 behoben). |
 | Mitarbeiter aus Projekt entfernen, dem Berichte zugeordnet sind | PASS | `DELETE /api/admin/projekte/[id]/mitarbeiter/[nutzerId]` löscht nur `projekt_mitarbeiter`-Eintrag; Begehungen bleiben dem Projekt erhalten (FK auf `projekte`, nicht auf `projekt_mitarbeiter`). |
 | Zwei Admins editieren gleichzeitig | PASS (per Spec) | Last-Write-Wins, kein Locking; entspricht MVP-Vereinbarung. |
 | Kürzel ändern | PASS | `PUT` Endpunkt erlaubt Kürzel-Änderung mit erneuter Eindeutigkeitsprüfung; bestehende `begehungen` referenzieren `projekt_id` (UUID), nicht das Kürzel — bleiben also korrekt zugeordnet. |
@@ -193,7 +193,7 @@ Next.js App
 - **Datei:** `src/app/admin/projekte/[id]/page.tsx`, ggf. Erweiterung in `src/app/api/admin/projekte/[id]/route.ts`
 - **Fix-Vorschlag:** In der GET-Detail-API ein `count` der `begehungen` mit `projekt_id = id` mitführen und im Header der Detailseite anzeigen.
 
-#### BUG-002: AC#7 — Archivierte Projekte erlauben weiterhin neue Begehungen
+#### BUG-002: AC#7 — Archivierte Projekte erlauben weiterhin neue Begehungen ✅ BEHOBEN
 - **Severity:** High
 - **Acceptance Criterion:** #7 ("keine neuen Begehungen mehr möglich")
 - **Beschreibung:** `POST /api/begehungen` prüft `archived_at` nicht. Ein Mitarbeiter (oder Admin), dem ein archiviertes Projekt zugewiesen ist, kann weiterhin Begehungen anlegen und damit den fachlichen Zweck der Archivierung umgehen. Selbst ein PRD-Constraint ("vergangene Projekte noch einsehbar, aber nicht aktiv beschreibbar") wird verletzt.
@@ -310,13 +310,15 @@ Keine Beeinträchtigung bestehender Features durch PROJ-2 festgestellt.
 
 ### Produktionsreife-Entscheidung
 
-**NICHT READY** — BUG-002 (High) blockiert die Approval. Sobald BUG-002 behoben und idealerweise BUG-001 ergänzt ist, kann der Status auf "Approved" gesetzt werden.
+**READY** — BUG-002 (High) wurde behoben (commit `744db6b`). Keine weiteren Critical/High-Bugs offen.
 
-**Empfohlene Reihenfolge für Fixes:**
-1. BUG-002 (High) — Server-seitiger Block für Begehungen auf archivierten Projekten
-2. BUG-001 (Medium) — Anzahl Begehungsberichte auf Detailseite ergänzen
-3. BUG-005 (Low) — PUT-Endpunkt soll archivierte Projekte ablehnen
-4. Restliche Low-Bugs nach Bedarf
+**Verbleibende Bugs (alle Low/Medium, nicht blockierend):**
+1. BUG-001 (Medium) — Anzahl Begehungsberichte auf Detailseite ergänzen
+2. BUG-005 (Low) — PUT-Endpunkt soll archivierte Projekte ablehnen
+3. BUG-003 (Low) — Mitarbeiter-Redirect zu `/` statt `/projekte`
+4. BUG-004 (Low) — Rate-Limit auf Projekt-Mutationen
+5. BUG-006 (Low) — Pagination fehlt
+6. BUG-007 (Low) — `mitarbeiter_anzahl` in UI ungenutzt
 
 ## Deployment
 _To be added by /deploy_
