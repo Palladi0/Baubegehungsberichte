@@ -330,6 +330,7 @@ export function BegehungsFormular({ begehungId, initialDaten, projekte }: Begehu
 
         if (body.duplikatWarnung) {
           setDuplikatWarnung(true)
+          toast.warning('Es existiert bereits eine Begehung für dieses Projekt an diesem Datum.')
         }
 
         try {

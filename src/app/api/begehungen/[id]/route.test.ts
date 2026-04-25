@@ -96,7 +96,7 @@ describe('GET /api/begehungen/[id]', () => {
   it('gibt 404 zurück wenn Begehung nicht existiert', async () => {
     setupAuth()
     const chain = makeSingleChain({ data: null, error: { code: 'PGRST116' } })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await GET(makeRequest(), makeParams('nonexistent'))
     expect(res.status).toBe(404)
@@ -105,7 +105,7 @@ describe('GET /api/begehungen/[id]', () => {
   it('gibt 403 zurück wenn Mitarbeiter eine fremde Begehung abruft', async () => {
     setupAuth('mitarbeiter', otherUserId)
     const chain = makeSingleChain({ data: sampleBegehung, error: null })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await GET(makeRequest(), makeParams('begehung-1'))
     expect(res.status).toBe(403)
@@ -114,7 +114,7 @@ describe('GET /api/begehungen/[id]', () => {
   it('gibt 200 zurück wenn Mitarbeiter eigene Begehung abruft', async () => {
     setupAuth('mitarbeiter', begehungOwnerId)
     const chain = makeSingleChain({ data: sampleBegehung, error: null })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await GET(makeRequest(), makeParams('begehung-1'))
     expect(res.status).toBe(200)
@@ -126,7 +126,7 @@ describe('GET /api/begehungen/[id]', () => {
   it('Admin kann fremde Begehung abrufen', async () => {
     setupAuth('admin', 'admin-1')
     const chain = makeSingleChain({ data: sampleBegehung, error: null })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await GET(makeRequest(), makeParams('begehung-1'))
     expect(res.status).toBe(200)
@@ -145,7 +145,7 @@ describe('PUT /api/begehungen/[id]', () => {
   it('gibt 422 zurück bei ungültigem Body (falsches Datum-Format)', async () => {
     setupAuth()
     const fromMock = vi.fn()
-    vi.mocked(createServiceClient).mockReturnValue({ from: fromMock } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: fromMock } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await PUT(makeRequest({ datum: 'kein-datum' }), makeParams('begehung-1'))
     expect(res.status).toBe(422)
@@ -154,7 +154,7 @@ describe('PUT /api/begehungen/[id]', () => {
   it('gibt 403 zurück wenn Mitarbeiter eine fremde Begehung aktualisiert', async () => {
     setupAuth('mitarbeiter', otherUserId)
     const chain = makeSingleChain({ data: { id: 'begehung-1', bearbeiter_id: begehungOwnerId }, error: null })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await PUT(makeRequest({ status: 'Fertig' }), makeParams('begehung-1'))
     expect(res.status).toBe(403)
@@ -163,7 +163,7 @@ describe('PUT /api/begehungen/[id]', () => {
   it('gibt 404 zurück wenn Begehung nicht existiert', async () => {
     setupAuth('mitarbeiter', begehungOwnerId)
     const chain = makeSingleChain({ data: null, error: { code: 'PGRST116' } })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await PUT(makeRequest({ status: 'Fertig' }), makeParams('nonexistent'))
     expect(res.status).toBe(404)
@@ -192,7 +192,7 @@ describe('PUT /api/begehungen/[id]', () => {
       if (k !== 'single') (chain[k] as ReturnType<typeof vi.fn>).mockReturnValue(chain)
     })
 
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await PUT(makeRequest({ status: 'Fertig' }), makeParams('begehung-1'))
     expect(res.status).toBe(200)
@@ -229,7 +229,7 @@ describe('DELETE /api/begehungen/[id]', () => {
     Object.keys(chain).forEach((k) => {
       if (k !== 'single') (chain[k] as ReturnType<typeof vi.fn>).mockReturnValue(chain)
     })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await DELETE(makeRequest(), makeParams('begehung-1'))
     expect(res.status).toBe(403)
@@ -238,7 +238,7 @@ describe('DELETE /api/begehungen/[id]', () => {
   it('gibt 404 zurück wenn Begehung nicht existiert', async () => {
     setupAuth('mitarbeiter', begehungOwnerId)
     const chain = makeSingleChain({ data: null, error: null })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await DELETE(makeRequest(), makeParams('nonexistent'))
     expect(res.status).toBe(404)
@@ -263,7 +263,7 @@ describe('DELETE /api/begehungen/[id]', () => {
     Object.keys(chain).forEach((k) => {
       if (k !== 'single') (chain[k] as ReturnType<typeof vi.fn>).mockReturnValue(chain)
     })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await DELETE(makeRequest(), makeParams('begehung-1'))
     expect(res.status).toBe(204)
@@ -288,7 +288,7 @@ describe('DELETE /api/begehungen/[id]', () => {
     Object.keys(chain).forEach((k) => {
       if (k !== 'single') (chain[k] as ReturnType<typeof vi.fn>).mockReturnValue(chain)
     })
-    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as ReturnType<typeof createServiceClient>)
+    vi.mocked(createServiceClient).mockReturnValue({ from: vi.fn().mockReturnValue(chain) } as unknown as ReturnType<typeof createServiceClient>)
 
     const res = await DELETE(makeRequest(), makeParams('begehung-1'))
     expect(res.status).toBe(204)
