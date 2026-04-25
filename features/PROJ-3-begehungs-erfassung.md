@@ -254,7 +254,7 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 ## QA Test Results
 
 **Getestet am:** 2026-04-25
-**QA-Methode:** Statische Code-Analyse + Unit-Tests (`npm test`: 53/53 bestanden) + E2E-Tests (`npm run test:e2e`: 7/25 bestanden, 18 skipped — erfordern echte DB-Session) + Red-Team-Security-Audit
+**QA-Methode:** Statische Code-Analyse + Unit-Tests (`npm test`: 54/54 bestanden) + E2E-Tests (`npm run test:e2e`: 7/25 bestanden, 18 skipped — erfordern echte DB-Session) + Red-Team-Security-Audit
 **Tester:** QA Engineer
 
 ---
@@ -318,7 +318,7 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 | SQL Injection | ✅ PASS | Supabase parametrisiert intern; kein Raw SQL |
 | XSS via Textarea-Inputs | ✅ PASS | Daten werden in DB gespeichert und in React-State angezeigt (kein `dangerouslySetInnerHTML`) |
 | RLS-Policies vorhanden | ✅ PASS | Migration `003_begehungen.sql`: SELECT/INSERT/UPDATE/DELETE für `begehungen` + `begehung_teilnehmer` |
-| Rate Limiting auf Claude-API-Endpunkt | ❌ FAIL | `POST /api/begehungen/extract` hat kein Rate Limiting; authentifizierter Nutzer kann unbegrenzt API-Calls auslösen und erhebliche KI-Kosten verursachen — **BUG-005 (Critical)** |
+| Rate Limiting auf Claude-API-Endpunkt | ✅ PASS | Sliding-Window: 20 Extraktionen/Stunde/Nutzer; 429 mit `Retry-After: 3600` bei Überschreitung — **BUG-005 behoben** |
 | Fehlende Längenbeschränkungen (DoS-Risiko) | ⚠️ WARN | `BegehungSchema`: Textfelder (`leistungsstand`, `vorkommnisse` etc.) haben kein `z.string().max()` — großer Payload möglich — **BUG-003** |
 | PUT erlaubt archiviertes Projekt via API | ⚠️ WARN | `PUT /api/begehungen/[id]` akzeptiert `projekt_id`-Änderung ohne Archivierungs-Check (nur via direktem API-Call exploit bar) — **BUG-004** |
 | Middleware leitet API-Routen zu HTML-Login um | ⚠️ WARN | Unauthentifizierte Anfragen an `/api/begehungen*` erhalten 302-Redirect zu `/login` (HTML) statt 401 JSON — für Browser-Clients korrekt, für API-Clients suboptimal |
@@ -333,16 +333,16 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 | BUG-002 | **Medium** | Autosave-Wiederherstellung funktioniert nicht im Bearbeiten-Modus | 1. Begehung B bearbeiten unter `/begehungen/[id]/bearbeiten`. 2. Felder ändern (Autosave schreibt alle 60 Sek. nach localStorage). 3. Tab schließen und wieder öffnen. 4. Formular zeigt Server-Stand, nicht den localStorage-Entwurf. | `BegehungsFormular.tsx:72–99` |
 | BUG-003 | **Medium** | Fehlende Längenbeschränkungen für Textfelder in API-Schemas | Authentifizierter Nutzer sendet extrem langen Text (~10 MB) an `POST /api/begehungen`. Kein `max()`-Limit in `BegehungSchema`. | `route.ts:22–28`, `[id]/route.ts:19–28` |
 | BUG-004 | **Medium** | PUT erlaubt Zuordnung zu archiviertem Projekt via API | Direkter `PUT /api/begehungen/[id]`-Aufruf mit `projekt_id` eines archivierten Projekts. Server akzeptiert es ohne Archivierungs-Check. | `[id]/route.ts:92–158` |
-| BUG-005 | **Critical** | Kein Rate Limiting auf `/api/begehungen/extract` (Claude-API) | Authentifizierter Nutzer macht in Schleife POST-Requests an `/api/begehungen/extract`. Unbegrenzte Claude-API-Aufrufe, hohe KI-Kosten möglich. | `extract/route.ts` |
+| ~~BUG-005~~ | ~~Critical~~ | ~~Kein Rate Limiting auf `/api/begehungen/extract`~~ | **Behoben 2026-04-25:** Sliding-Window 20/Stunde/Nutzer in `extract/route.ts`; 429 + `Retry-After`-Header; Frontend-Toast für 429. | `extract/route.ts` |
 | BUG-006 | **Low** | Irreführender Hint-Text beim Wetterdaten-Button | Button-Hint sagt „Projekt mit Adresse … erforderlich" — Button wird aber auch aktiv wenn nur lat/lon-Koordinaten gesetzt sind (ohne Adresse). | `BegehungsFormular.tsx:469–473` |
 
 ---
 
 ### Test-Abdeckung
 
-- **Unit-Tests:** 53/53 bestanden (`npm test`)
+- **Unit-Tests:** 54/54 bestanden (`npm test`)
   - Neu hinzugefügt: `[id]/route.test.ts` (14 Tests: GET/PUT/DELETE Autorisierung)
-  - Neu hinzugefügt: `extract/route.test.ts` (8 Tests: Auth, Validierung, Claude-Antwortverarbeitung)
+  - Neu hinzugefügt: `extract/route.test.ts` (9 Tests: Auth, Rate Limiting, Validierung, Claude-Antwortverarbeitung)
 - **E2E-Tests:** 7/25 bestanden, 18 skipped (erfordern Live-DB-Session mit echtem Supabase)
   - Datei: `tests/PROJ-3-begehungs-erfassung.spec.ts`
   - Testbare ACs ohne DB: Redirect, Formularstruktur, KI-Extraktion (gemockt), Sicherheitsheader
@@ -352,18 +352,17 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 
 ### Produktionsreife-Entscheidung
 
-**❌ NICHT BEREIT** — 1 Critical + 1 High Bug offen:
+**❌ NICHT BEREIT** — 1 High Bug offen (BUG-005 Critical wurde behoben):
 
-- **BUG-005 (Critical):** Rate Limiting auf `/api/begehungen/extract` fehlt → finanzielles Sicherheitsrisiko
+- ~~**BUG-005 (Critical):** behoben — Rate Limiting implementiert~~
 - **BUG-001 (High):** Duplikat-Warnung wird dem Nutzer nie angezeigt → wichtige UX-Funktion kaputt
 
-**Empfohlene Reihenfolge:**
-1. BUG-005 (Critical): Rate Limiting auf extract-Endpunkt (max. N Requests/Minute/User)
-2. BUG-001 (High): Duplikat-Warnung als Toast anzeigen ODER nicht redirecten
-3. BUG-003 (Medium): `max()`-Limits auf Textfelder
-4. BUG-004 (Medium): Archivierungs-Check in PUT
-5. BUG-002 (Medium): Autosave-Wiederherstellung für Bearbeiten-Modus
-6. BUG-006 (Low): Hint-Text korrigieren
+**Verbleibende Reihenfolge:**
+1. BUG-001 (High): Duplikat-Warnung als Toast anzeigen ODER nicht redirecten
+2. BUG-003 (Medium): `max()`-Limits auf Textfelder
+3. BUG-004 (Medium): Archivierungs-Check in PUT
+4. BUG-002 (Medium): Autosave-Wiederherstellung für Bearbeiten-Modus
+5. BUG-006 (Low): Hint-Text korrigieren
 
 ## Deployment
 _To be added by /deploy_
