@@ -1,6 +1,6 @@
 # PROJ-3: Begehungs-Erfassung
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-25
 
@@ -329,7 +329,7 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 
 | ID | Severity | Titel | Schritte | Datei |
 |----|----------|-------|----------|-------|
-| BUG-001 | **High** | Duplikat-Warnung wird nie angezeigt | 1. Neue Begehung für Projekt P am Datum D anlegen. 2. Zweite Begehung für dasselbe Projekt P am selben Datum D speichern. 3. API gibt `duplikatWarnung: true` zurück — aber `router.push('/begehungen')` wird direkt danach aufgerufen, Seite verlassen vor Render. | `BegehungsFormular.tsx:327–344` |
+| ~~BUG-001~~ | ~~High~~ | ~~Duplikat-Warnung wird nie angezeigt~~ | **Behoben 2026-04-25:** `toast.warning()` wird jetzt vor dem Redirect gefeuert — Sonner-Toast bleibt seitenübergreifend sichtbar. | `BegehungsFormular.tsx` |
 | BUG-002 | **Medium** | Autosave-Wiederherstellung funktioniert nicht im Bearbeiten-Modus | 1. Begehung B bearbeiten unter `/begehungen/[id]/bearbeiten`. 2. Felder ändern (Autosave schreibt alle 60 Sek. nach localStorage). 3. Tab schließen und wieder öffnen. 4. Formular zeigt Server-Stand, nicht den localStorage-Entwurf. | `BegehungsFormular.tsx:72–99` |
 | BUG-003 | **Medium** | Fehlende Längenbeschränkungen für Textfelder in API-Schemas | Authentifizierter Nutzer sendet extrem langen Text (~10 MB) an `POST /api/begehungen`. Kein `max()`-Limit in `BegehungSchema`. | `route.ts:22–28`, `[id]/route.ts:19–28` |
 | BUG-004 | **Medium** | PUT erlaubt Zuordnung zu archiviertem Projekt via API | Direkter `PUT /api/begehungen/[id]`-Aufruf mit `projekt_id` eines archivierten Projekts. Server akzeptiert es ohne Archivierungs-Check. | `[id]/route.ts:92–158` |
@@ -352,17 +352,16 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 
 ### Produktionsreife-Entscheidung
 
-**❌ NICHT BEREIT** — 1 High Bug offen (BUG-005 Critical wurde behoben):
+**✅ BEREIT** — Alle Critical/High Bugs behoben:
 
-- ~~**BUG-005 (Critical):** behoben — Rate Limiting implementiert~~
-- **BUG-001 (High):** Duplikat-Warnung wird dem Nutzer nie angezeigt → wichtige UX-Funktion kaputt
+- ~~**BUG-005 (Critical):** behoben — Rate Limiting 20/Stunde/Nutzer~~
+- ~~**BUG-001 (High):** behoben — Duplikat-Warnung als Toast~~
 
-**Verbleibende Reihenfolge:**
-1. BUG-001 (High): Duplikat-Warnung als Toast anzeigen ODER nicht redirecten
-2. BUG-003 (Medium): `max()`-Limits auf Textfelder
-3. BUG-004 (Medium): Archivierungs-Check in PUT
-4. BUG-002 (Medium): Autosave-Wiederherstellung für Bearbeiten-Modus
-5. BUG-006 (Low): Hint-Text korrigieren
+**Offene Medium/Low Bugs (kein Blocker):**
+- BUG-003 (Medium): `max()`-Limits auf Textfelder
+- BUG-004 (Medium): Archivierungs-Check in PUT bei `projekt_id`-Änderung
+- BUG-002 (Medium): Autosave-Wiederherstellung für Bearbeiten-Modus
+- BUG-006 (Low): Hint-Text beim Wetterdaten-Button
 
 ## Deployment
 _To be added by /deploy_
