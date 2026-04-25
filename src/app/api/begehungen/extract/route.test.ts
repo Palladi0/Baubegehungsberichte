@@ -35,6 +35,22 @@ beforeEach(() => {
 })
 
 describe('POST /api/begehungen/extract', () => {
+  it('gibt 429 zurück wenn Rate Limit überschritten (21. Aufruf in einer Stunde)', async () => {
+    // Use a dedicated userId so this test does not exhaust the limit for other tests
+    vi.mocked(requireAuth).mockResolvedValue({
+      ok: true, userId: 'rate-limit-test-user', role: 'mitarbeiter', email: 'rl@test.de',
+    } as Awaited<ReturnType<typeof requireAuth>>)
+
+    mockCreate.mockResolvedValue({ content: [{ type: 'text', text: '{}' }] })
+    for (let i = 0; i < 20; i++) {
+      await POST(makeRequest({ freitext: 'Genug langer Freitext fuer die Extraktion hier' }))
+    }
+    const res = await POST(makeRequest({ freitext: 'Genug langer Freitext fuer die Extraktion hier' }))
+    expect(res.status).toBe(429)
+    const json = await res.json()
+    expect(json.error).toMatch(/Limit/i)
+  })
+
   it('gibt 401 zurück ohne Auth', async () => {
     vi.mocked(requireAuth).mockResolvedValue({
       ok: false,
