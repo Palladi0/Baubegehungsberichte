@@ -1,8 +1,8 @@
 # PROJ-7: Berichte-Dashboard
 
-## Status: Architected
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-04-27
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung)
@@ -169,8 +169,207 @@ Die **Foto-Anzahl** pro Bericht kommt aus einem Join mit der `fotos`-Tabelle (PR
 | shadcn/ui: Table, Badge, Select, Input, DropdownMenu, AlertDialog, Skeleton, Pagination | UI-Komponenten | Bereits vorhanden |
 | Supabase Client | Datenbankabfragen, RLS | Bereits vorhanden |
 
+## Implementation Notes
+- Alle API-Endpunkte (GET /api/reports, DELETE /api/reports/[id], PATCH /api/reports/[id]/status, POST /api/reports/[id]/duplicate) implementiert
+- Frontend-Komponenten: BerichteDashboard, BerichteTabelle, FilterLeiste, AktionenDropdown, LöschDialog
+- SWR-Caching mit 30-Sekunden-Revalidierung aktiv
+- Paginierung (25 Einträge/Seite) serverseitig
+- Rollenbasierter Zugriff: Admin sieht alle Berichte, Mitarbeiter nur Projekte bei denen sie Mitglied sind
+- Sortierung nach Datum (asc/desc), Projekt-ID, Ersteller-ID
+- PDF-Datei wird beim Löschen eines Berichts ebenfalls entfernt (best-effort)
+- Homepage (/) leitet authentifizierte Nutzer automatisch zu /berichte weiter
+
 ## QA Test Results
-_To be added by /qa_
+
+**QA Date:** 2026-04-27
+**Tester:** /qa skill
+**Status:** ❌ NOT READY — 1 High (Security) + 2 Medium + 3 Low bugs found
+
+---
+
+### Acceptance Criteria Results
+
+| # | Criteria | Result | Notes |
+|---|----------|--------|-------|
+| AC-1 | Dashboard ist Startseite nach Login | ✅ PASS | `page.tsx` redirect zu `/berichte`, Middleware schützt Route |
+| AC-2 | Berichtsliste zeigt Projekt, Datum, Ersteller, Status, Fotos, Erstellt | ✅ PASS | Alle Pflichtfelder in `BerichteTabelle.tsx` vorhanden |
+| AC-3 | Filter: Projekt, Datumsbereich, Status | ✅ PASS | `FilterLeiste.tsx` hat alle drei Filter |
+| AC-4 | Suchfeld: Volltextsuche in Projektname und Berichtsdatum | ❌ FAIL | **BUG-2**: Suche durchsucht nur Projektnamen, nicht Datum |
+| AC-5 | Sortierung: Datum (Standard), Projekt, Ersteller | ⚠️ PARTIAL | Optionen vorhanden, aber **BUG-6**: Projekt-Sortierung nutzt UUID statt Name |
+| AC-6 | Schnellaktionen: Öffnen, PDF herunterladen, Duplizieren, Löschen | ⚠️ PARTIAL | **BUG-5**: PDF-Download versteckt statt deaktiviert+Tooltip wenn kein PDF |
+| AC-7 | „Neuer Bericht"-Button oben rechts → /berichte/neu | ✅ PASS | |
+| AC-8 | Löschung: Bestätigungsdialog, nur Admin/Eigentümer | ✅ PASS | `LöschDialog.tsx` + API-Check korrekt |
+| AC-9 | Statusanzeige: Entwurf (gelb), Fertig (grün) | ✅ PASS | `StatusBadge` mit korrekten Tailwind-Klassen |
+| AC-10 | Leere Ansicht mit Hilfetext | ⚠️ PARTIAL | **BUG-4**: Kein Unterschied zwischen „keine Berichte" vs. „kein Treffer für Filter" |
+| AC-11 | Paginierung (max. 25 Einträge/Seite) | ⚠️ PARTIAL | **BUG-3**: Seiten-Buttons zeigen immer Seiten 1–5; Seite 6+ nicht erreichbar |
+
+---
+
+### Bugs Found
+
+#### 🔴 BUG-1 — IDOR: Mitarbeiter kann Berichte fremder Projekte abrufen (High / Security)
+**Schweregrad:** High (Security — IDOR / Insecure Direct Object Reference)
+**Datei:** `src/app/api/reports/route.ts:84-87`
+
+**Beschreibung:**
+Wenn ein Mitarbeiter `?projekt_id=<UUID>` für ein Projekt übergibt, dem er nicht angehört, wird die `erlaubteProjektIds`-Prüfung umgangen. Der Code verzweigt:
+```typescript
+if (projektId) {
+  query = query.eq('projekt_id', projektId)  // ← erlaubteProjektIds wird NICHT geprüft
+} else if (effektiveProjektIds !== null) {
+  query = query.in('projekt_id', effektiveProjektIds)
+}
+```
+Da `createServiceClient()` RLS umgeht, gibt die API Berichte zurück, obwohl der Nutzer keinen Zugriff hat.
+
+**Voraussetzung:** Nutzer muss Mitglied in mindestens einem Projekt sein (sonst greift der Early-Return bei `erlaubteProjektIds.length === 0`).
+
+**Reproduktion:**
+1. Als Mitarbeiter (kein Admin) einloggen, der in Projekt A Mitglied ist
+2. GET `/api/reports?projekt_id=<UUID-von-Projekt-B>` (Projekt B, kein Mitglied)
+3. → API gibt Berichte von Projekt B zurück (erwartet: leere Liste oder 403)
+
+**Beweis:** Unit-Test `[BUG-1]` in `src/app/api/reports/route.test.ts` schlägt fehl
+
+**Fix:** Vor Anwendung des `projekt_id`-Filters prüfen, ob die angegebene ID in `erlaubteProjektIds` enthalten ist:
+```typescript
+if (projektId) {
+  if (erlaubteProjektIds !== null && !erlaubteProjektIds.includes(projektId)) {
+    return NextResponse.json({ berichte: [], gesamt: 0, seiten: 0 })
+  }
+  query = query.eq('projekt_id', projektId)
+}
+```
+
+---
+
+#### 🟡 BUG-2 — Suche durchsucht nicht das Datum (Medium)
+**Schweregrad:** Medium
+**Datei:** `src/app/api/reports/route.ts:41-51`
+
+**Beschreibung:**
+Die Spec fordert „Volltextsuche in Projektname und Berichtsdatum". Die Implementierung sucht nur im Projektnamen via `ilike('name', ...)`. Datumssuche ist nicht implementiert.
+
+**Reproduktion:**
+1. Im Suchfeld ein Datum eingeben (z. B. „20.04")
+2. → Keine Ergebnisse; erwartet: Berichte vom 20.04. werden gefunden
+
+**Fix:** Zusätzlich nach `begehungs_datum` filtern, wenn der Suchterm wie ein Datum aussieht, oder serverseitig einen `OR`-Filter auf `begehungs_datum` ergänzen.
+
+---
+
+#### 🟡 BUG-3 — Paginierung: Seiten 6+ nicht erreichbar (Medium)
+**Schweregrad:** Medium
+**Datei:** `src/components/berichte/BerichteTabelle.tsx:197-208`
+
+**Beschreibung:**
+Die Seiten-Buttons werden so generiert:
+```typescript
+Array.from({ length: Math.min(seiten, 5) }).map((_, i) => {
+  const seiteNr = i + 1  // Immer 1, 2, 3, 4, 5
+  ...
+})
+```
+Bei mehr als 5 Seiten (> 125 Berichte) sind Seiten 6+ nicht erreichbar. Der „Weiter"-Button funktioniert zwar, aber ohne direkten Sprung gibt es keine Möglichkeit, weit zu navigieren.
+
+**Fix:** Sliding-Window-Paginierung implementieren, die Seiten rund um die aktuelle Seite anzeigt.
+
+---
+
+#### 🟢 BUG-4 — Leere Ansicht unterscheidet nicht zwischen „keine Berichte" und „kein Treffer" (Low)
+**Schweregrad:** Low
+**Datei:** `src/components/berichte/BerichteTabelle.tsx:72-84`
+
+**Beschreibung:**
+Die Spec fordert für den Fall „keine Berichte vorhanden": „Noch keine Berichte. Erstelle deinen ersten Bericht." mit einem „Neuer Bericht"-Button. Stattdessen zeigt die Implementierung immer „Keine Berichte gefunden" + „Passe die Filter an oder erstelle einen neuen Bericht." — auch wenn gar keine Filter aktiv sind und schlicht noch kein Bericht existiert.
+
+**Fix:** Im `LeerZustand` unterscheiden, ob Filter aktiv sind (`props.istGefiltert`). Bei leerer Datenbank anderen Text + direkten „Neuer Bericht"-Button anzeigen.
+
+---
+
+#### 🟢 BUG-5 — PDF-Download-Aktion versteckt statt deaktiviert (Low)
+**Schweregrad:** Low
+**Datei:** `src/components/berichte/AktionenDropdown.tsx:113-119`
+
+**Beschreibung:**
+Die Spec fordert: „PDF herunterladen"-Aktion „deaktiviert + Tooltip wenn kein PDF vorhanden". Aktuell wird die Aktion vollständig ausgeblendet (`{hatPdf && !pdfVeraltet && (...)}`) und stattdessen „PDF generieren" eingeblendet. Für einen Nutzer, der nicht weiß, ob ein PDF generiert wurde, ist das verwirrend.
+
+**Fix:** Immer „PDF herunterladen" anzeigen; wenn kein PDF vorhanden → `disabled` + `Tooltip` „Noch kein PDF generiert".
+
+---
+
+#### 🟢 BUG-6 — Sortierung „Projekt" nutzt UUID statt Projektname (Low)
+**Schweregrad:** Low
+**Datei:** `src/app/api/reports/route.ts:108`
+
+**Beschreibung:**
+```typescript
+case 'projekt':
+  query = query.order('projekt_id', { ascending: true })
+```
+`projekt_id` ist eine UUID. UUID-Sortierung ergibt keine alphabetische Sortierung nach Projektname.
+
+**Fix:** Entweder in der DB via Join nach `projekte.name` sortieren, oder die App-seitige Sortierung nach `projekt_name` im API-Response vornehmen.
+
+---
+
+### Edge Case Tests
+
+| Edge Case | Result | Notes |
+|-----------|--------|-------|
+| Mitarbeiter löscht fremden Bericht | ✅ PASS | API gibt 403 zurück (korrekt) |
+| Admin löscht beliebigen Bericht | ✅ PASS | API gibt 204 zurück |
+| Bericht nicht gefunden (DELETE) | ✅ PASS | API gibt 404 zurück |
+| Status-Toggle entwurf → fertig → entwurf | ✅ PASS | Korrekte Toggle-Logik |
+| Fremder Mitarbeiter ändert Status | ✅ PASS | API gibt 403 zurück |
+| 0 Berichte (leere DB) | ⚠️ PARTIAL | Leere Ansicht vorhanden, aber Text nicht spec-konform (BUG-4) |
+| > 125 Berichte (> 5 Seiten) | ❌ FAIL | Seiten 6+ nicht erreichbar (BUG-3) |
+
+---
+
+### Security Audit
+
+| Check | Result | Notizen |
+|-------|--------|---------|
+| Auth-Check auf allen API-Endpunkten | ✅ PASS | `requireAuth()` in allen Routes |
+| IDOR: Mitarbeiter sieht fremde Berichte über projekt_id-Param | ❌ FAIL | **BUG-1** — High |
+| Lösch-Autorisierung (nur Admin/Eigentümer) | ✅ PASS | Korrekte Prüfung in DELETE-Route |
+| XSS: Suche-Input | ✅ PASS | Supabase parametrisierte Queries |
+| SQL Injection: Filter-Parameter | ✅ PASS | Supabase SDK, keine Raw Queries |
+| Exposed Secrets in API-Response | ✅ PASS | Keine sensiblen Felder exponiert |
+| Rate Limiting auf Auth-Endpunkten | ✅ PASS | Middleware-Rate-Limit vorhanden |
+| Admin-Routen geschützt | ✅ PASS | Middleware prüft Rolle |
+| createServiceClient() bypass RLS | ⚠️ INFO | Service Client umgeht RLS bewusst; App-Layer-Checks müssen zuverlässig sein — BUG-1 zeigt Lücke |
+
+---
+
+### Automated Test Summary
+
+**Unit Tests:** `src/app/api/reports/route.test.ts` — 7 Tests (1 schlägt fehl: BUG-1 bewiesen)
+**Unit Tests:** `src/app/api/reports/[id]/route.test.ts` — 5 Tests (alle grün)
+**Unit Tests:** `src/app/api/reports/[id]/status/route.test.ts` — 5 Tests (alle grün)
+**E2E Tests:** `tests/PROJ-7-berichte-dashboard.spec.ts` — 18 Tests (2 pass: Auth-Redirects; 16 skip: kein Supabase-Session in CI)
+
+---
+
+### Regression Check
+
+Alle vorherigen Test-Suites (PROJ-1 bis PROJ-6): ✅ Kein Fehler — 143 Tests grün (1 absichtlich fehlend für BUG-1 Dokumentation)
+
+---
+
+### Production Readiness
+
+**❌ NOT READY** — 1 High (Security) Bug muss vor Deployment behoben werden.
+
+| Priorität | Bug | Blockiert Deployment? |
+|-----------|-----|-----------------------|
+| 1 (P0) | BUG-1: IDOR Mitarbeiter sieht fremde Berichte | ✅ JA — muss behoben werden |
+| 2 (P1) | BUG-2: Suche durchsucht nicht Datum | Nein |
+| 3 (P1) | BUG-3: Paginierung > 5 Seiten defekt | Nein (bei < 126 Berichten kein Problem) |
+| 4 (P2) | BUG-4: Leere-Zustand Text nicht spec-konform | Nein |
+| 5 (P2) | BUG-5: PDF-Download versteckt statt deaktiviert | Nein |
+| 6 (P2) | BUG-6: Projekt-Sortierung falsch (UUID) | Nein |
 
 ## Deployment
 _To be added by /deploy_
