@@ -1,8 +1,8 @@
 # PROJ-6: PDF-Export
 
-## Status: Architected
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-04-23
 
 ## Dependencies
 - Requires: PROJ-5 (Berichtsgenerierung) — HTML-Bericht als Basis für den PDF-Export
@@ -134,8 +134,157 @@ Keine neue Tabelle nötig. Die vorhandene **`berichte`-Tabelle** aus PROJ-5 erh�
 
 > **Hinweis zur Serverumgebung:** Puppeteer lädt beim ersten Start Chromium herunter (~170 MB). Für Docker-Deployments empfiehlt sich `puppeteer-core` mit einem vorinstallierten Chromium im Image.
 
+## Implementierungsnotizen (2026-04-23)
+
+### Was gebaut wurde
+- **Migration** `006_pdf_export.sql`: Felder `pdf_pfad`, `pdf_generiert_am`, `pdf_versions_nr` zur `berichte`-Tabelle hinzugefügt
+- **Shared Renderer** `src/lib/bericht-renderer.ts`: `renderBerichtHTML()` aus der Preview-Route extrahiert — wird von Preview und Export gemeinsam genutzt
+- **API-Route** `POST /api/reports/[id]/export`: Puppeteer-Pipeline; rendert aktuellen JSONB-Snapshot zu PDF; speichert unter `uploads/pdf/[id].pdf` (oder `PDF_UPLOAD_PATH`); aktualisiert DB-Felder; gibt `dateiname`, `version_nr`, optionale `warnung` zurück
+- **API-Route** `GET /api/reports/[id]/download`: Liest `pdf_pfad` aus DB, sendet Datei mit `Content-Disposition: attachment` und korrektem Dateinamen `[Projektkuerzel]_Begehung_[YYYY-MM-DD].pdf`
+- **Typen** `src/types/berichte.ts`: Interface `Bericht` um `pdf_pfad`, `pdf_generiert_am`, `pdf_versions_nr` erweitert
+- **Komponente** `src/components/berichte/PDFExportDialog.tsx`: Dialog mit 4 Phasen (idle / generating / success / error), simuliertem Fortschrittsbalken, Versions-Veralterungs-Hinweis, Download-Button
+- **Seite** `src/app/berichte/[id]/page.tsx`: Deaktivierter Platzhalter-Button ersetzt durch `PDFExportDialog`
+- **API** `GET /api/reports/[id]/route.ts`: PDF-Felder in die Abfrage und Antwort aufgenommen
+
+### Abweichungen vom Spec
+- PDF-Speicherort: `uploads/pdf/` (konfigurierbar via `PDF_UPLOAD_PATH` Env-Var) statt `/var/reports/pdf/` — für lokale Entwicklung; Produktionspfad über Env-Var steuerbar
+- Fortschrittsbalken: Simulierter Fortschritt (kein echtes Streaming), da Puppeteer keinen Fortschritts-Callback liefert
+
 ## QA Test Results
-_To be added by /qa_
+
+**QA-Datum:** 2026-04-27
+**Tester:** QA Engineer (automatisiert)
+**Status:** ❌ NOT READY — 3 HIGH-Bugs, muss behoben werden vor Deploy
+
+---
+
+### Acceptance Criteria
+
+| # | Kriterium | Status | Anmerkung |
+|---|-----------|--------|-----------|
+| AC-1 | PDF-Export-Button im Editor und Berichtsübersicht sichtbar | ⚠️ PARTIAL | Editor: ✅ Button vorhanden. Dashboard: Nur Download-Button (disabled wenn kein PDF), kein Export/Generieren-Button → BUG-007 |
+| AC-2 | PDF wird serverseitig generiert | ✅ PASS | Puppeteer läuft server-seitig in `/api/reports/[id]/export` |
+| AC-3 | Format DIN A4, Hochformat, 2 cm Ränder | ✅ PASS | `format: 'A4'`, `margin: { top/bottom/left/right: '20mm' }` |
+| AC-4 | Kopfzeile auf jeder Seite (Logo, Titel, Datum) | ❌ FAIL | Kein Puppeteer `headerTemplate`. Logo/Titel nur auf Deckblatt. Folgeseiten ohne Kopfzeile → BUG-001 |
+| AC-5 | Fußzeile auf jeder Seite (Projektnr, Ersteller, Seitennr) | ❌ FAIL | Nur statischer `fusszeilen_text` aus Template. Kein dynamisches `footerTemplate`. Keine Seitennummern "Seite X von Y" → BUG-002 |
+| AC-6 | Seitenumbrüche: Abschnitte beginnen auf neuer Seite | ❌ FAIL | CSS `page-break-before: auto` (nicht `always`) in `@media print` → BUG-004 |
+| AC-7 | Fotos: max. 2 nebeneinander, mit Bildunterschrift, nie abgeschnitten | ❌ FAIL | 2-Spalten-Grid ✅. Aber: relative URLs nicht in Puppeteer auflösbar → BUG-003. `object-fit: cover` schneidet Fotos ab → BUG-005 |
+| AC-8 | Schriftart serifenlos, min. 10pt, 14pt Überschriften | ✅ PASS | 'Helvetica Neue', Arial. 11pt Standard (min. 10pt), 14pt für `.abschnitt-titel` |
+| AC-9 | Dateiname: `[Projektkuerzel]_Begehung_[YYYY-MM-DD].pdf` | ✅ PASS | Beide API-Routen erzeugen korrekte Dateinamen |
+| AC-10 | PDF-Generierung max. 30 Sekunden | ✅ PASS | Timeout-Enforcement: 30s (normal), 120s (>100 Fotos) |
+| AC-11 | Ladefortschrittsanzeige während Generierung | ✅ PASS | `Progress`-Komponente + Loader2-Spinner im Dialog |
+| AC-12 | Generierte PDFs auf Server gespeichert und erneut abrufbar | ✅ PASS | `uploads/pdf/[id].pdf`, DB-Felder `pdf_pfad/generiert_am/versions_nr` |
+
+**Ergebnis: 6 bestanden, 1 teilweise, 5 nicht bestanden**
+
+---
+
+### Edge Cases
+
+| Edge Case | Status | Anmerkung |
+|-----------|--------|-----------|
+| > 100 Fotos: Warnung + Timeout 120s | ⚠️ PARTIAL | Timeout korrekt. Warnung erscheint NACH Export, nicht vorher → BUG-008 |
+| Foto nicht gefunden: Platzhalter | ❌ FAIL | Kein Fallback-Platzhalter. Broken-Image-Icon wird angezeigt → BUG-006 |
+| PDF-Generierung abbricht: Fehlerbehandlung | ✅ PASS | `catch`-Block löscht halb-generiertes PDF, gibt Fehlermeldung zurück |
+| Sehr langer Freitext | ✅ PASS | `white-space: pre-wrap` — Text bricht korrekt um |
+| Kein Firmenlogo: Firmenname als Text | ✅ PASS | Fallback-Kette: `logo_url` → `firmenname` → `deckblatt.projektname` |
+
+---
+
+### Sicherheits-Audit (Red Team)
+
+| Prüfpunkt | Status | Anmerkung |
+|-----------|--------|-----------|
+| Authentifizierung (export + download) | ✅ PASS | `requireAuth()` in beiden Routen |
+| Autorisierung (IDOR) | ✅ PASS | Mitglieds-Check vor jedem Export/Download |
+| Path Traversal (pdf_pfad) | ✅ PASS | `id` ist UUID; `pdf_pfad` vom Server gesetzt (kein User-Input) |
+| XSS im HTML-Renderer | ✅ PASS | `escHtml()` für alle User-Daten; Unit-Tests bestätigen (5 XSS-Tests) |
+| SQL Injection | ✅ PASS | Supabase parameterisierte Queries |
+| Rate Limiting auf /export | ⚠️ FEHLT | Puppeteer ist CPU-intensiv; kein Rate-Limit → BUG-009 |
+| Content-Disposition Injection | ✅ PASS | Dateiname-Regex `[^a-zA-Z0-9-_]` → `_` sanitisiert |
+
+---
+
+### Bugs
+
+#### BUG-001 — HIGH: Kopfzeile fehlt auf allen Seiten außer Deckblatt
+- **Schritte:** Bericht exportieren → PDF öffnen → Seite 2+ hat keine Kopfzeile
+- **Erwartet:** Firmenlogo (links), Berichtstitel (Mitte), Datum (rechts) auf jeder Seite
+- **Ist:** Kein Puppeteer `headerTemplate`. Logo/Titel nur auf Deckblatt-Seite.
+- **Fix:** `page.pdf({ headerTemplate: '...' })` mit Logo-Data-URI, Titel und Datum implementieren
+
+#### BUG-002 — HIGH: Seitennummerierung "Seite X von Y" fehlt in der Fußzeile
+- **Schritte:** Bericht exportieren → PDF öffnen → Fußzeile zeigt nur statischen Template-Text
+- **Erwartet:** Projektnummer (links), Ersteller (Mitte), "Seite X von Y" (rechts)
+- **Ist:** Nur `fusszeilen_text` aus der Vorlage (zentriert). Keine Seitennummern.
+- **Fix:** `page.pdf({ footerTemplate: '<span>...Seite <span class="pageNumber"></span> von <span class="totalPages"></span></span>' })` implementieren. Puppeteer-Margin für header/footer berücksichtigen.
+
+#### BUG-003 — HIGH: Fotos werden im PDF nicht gerendert (relative URLs)
+- **Schritte:** Bericht mit Fotos exportieren → PDF öffnen → Broken-Image-Platzhalter statt Fotos
+- **Erwartet:** Fotos korrekt im PDF eingebettet
+- **Ist:** `page.setContent()` ohne `baseURL`. Relative `/api/media/file/...` URLs können von Puppeteer nicht aufgelöst werden. Puppeteer wartet bis zum Timeout, dann werden Bilder als broken dargestellt.
+- **Fix:** Entweder `page.setContent(html, { waitUntil: ..., url: 'http://localhost:3000' })` setzen (Basis-URL), oder Bilder als Data-URIs in den Snapshot einbetten (bevorzugt für Offline-Rendering)
+
+#### BUG-004 — MEDIUM: Seitenumbrüche vor Abschnitten nicht erzwungen
+- **Schritte:** Bericht mit vielen Abschnitten exportieren → Abschnitte fließen ohne Seitenumbrüche
+- **Erwartet:** Jeder Abschnitt beginnt auf neuer Seite
+- **Ist:** `@media print { .page-break-before { page-break-before: auto; } }` — `auto` erzwingt keinen Umbruch
+- **Fix:** `page-break-before: always` in `@media print` für `.abschnitt`
+
+#### BUG-005 — MEDIUM: Fotos werden durch feste Höhe abgeschnitten
+- **Schritte:** Bericht mit Hochformat-Fotos exportieren → oberer/unterer Bereich abgeschnitten
+- **Erwartet:** Fotos werden nie abgeschnitten (Spec)
+- **Ist:** `.foto-item img { height: 140px; object-fit: cover; }` — schneidet Fotos auf 140px zu
+- **Fix:** `height: auto; max-height: 140px; object-fit: contain;` oder ohne feste Höhe
+
+#### BUG-006 — MEDIUM: Kein Platzhalter für nicht gefundene Fotos
+- **Schritte:** Foto aus DB/Dateisystem löschen → Bericht exportieren → broken image im PDF
+- **Erwartet:** `[Foto nicht verfügbar]`-Platzhalter (laut Spec Edge Case)
+- **Ist:** Broken-Image-Icon ohne Text-Fallback
+- **Fix:** `onerror`-Handler am `<img>`-Tag oder Server-seitige Bildprüfung vor Rendering
+
+#### BUG-007 — MEDIUM: PDFNeuGenerierenButton fehlt im Dashboard
+- **Schritte:** Bericht öffnen → Version erhöhen → zurück zu Dashboard → Kein Hinweis, dass PDF veraltet
+- **Erwartet:** "Neu generieren"-Button im Dashboard wenn `pdf_versions_nr < aktuelle_version_nr` (laut Tech Design)
+- **Ist:** `AktionenDropdown` hat nur "PDF herunterladen" (disabled) — kein Export-Trigger im Dashboard
+- **Fix:** `PDFNeuGenerierenButton` in `AktionenDropdown` oder `BerichteTabelle` einfügen
+
+#### BUG-008 — LOW: Warnung für >100 Fotos erscheint nach Export, nicht vorher
+- **Schritte:** Bericht mit >100 Fotos exportieren → Warnung erscheint im Erfolgs-Zustand
+- **Erwartet:** "Warnung vor Export" (Spec Edge Case)
+- **Ist:** Warnung ist Teil der Success-Response, d.h. nach dem 30–120s dauernden Export
+- **Fix:** Foto-Anzahl vor Export laden und Warnung im `idle`-Zustand des Dialogs zeigen
+
+#### BUG-009 — LOW: Keine Rate-Limitierung auf POST /api/reports/[id]/export
+- **Beschreibung:** Authentifizierte Nutzer können beliebig viele Puppeteer-Instanzen spawnen
+- **Risiko:** CPU/RAM DoS durch parallele Puppeteer-Prozesse
+- **Fix:** Request-Queue oder Rate-Limit (z.B. 1 Export/Minute pro Nutzer)
+
+#### BUG-010 — LOW: Inter-Font nicht eingebettet (Tech Design Abweichung)
+- **Beschreibung:** Tech Design: "Inter-Font liegt lokal auf dem Server". Implementierung nutzt 'Helvetica Neue', Arial ohne @font-face
+- **Auswirkung:** Nur kosmetisch (Arial ist serifenlos, Spec sagt "z. B. Inter, Arial")
+- **Fix:** Optional: Inter via @font-face mit lokaler Datei einbinden
+
+---
+
+### Automatisierte Tests
+
+**Unit-Tests (Vitest):** ✅ 126/126 bestanden
+- `bericht-renderer.test.ts`: 34 Tests — alle bestanden (Deckblatt, Abschnitte, Fotos, CSS, Vorlagen, XSS-Sicherheit)
+
+**E2E-Tests (Playwright):** ✅ 1/1 (Auth-Redirect). 18 skipped (kein Live-Supabase-Session)
+- `tests/PROJ-6-pdf-export.spec.ts`: 19 Tests für AC-Abdeckung
+
+**Getestete Browser:** Chrome (Desktop), Mobile Safari (375px), Desktop (1440px)
+
+---
+
+### Produktionsbereitschaft
+
+❌ **NICHT BEREIT** — 3 HIGH-Bugs müssen zuerst behoben werden:
+1. BUG-001: Kopfzeile auf allen Seiten (Puppeteer `headerTemplate`)
+2. BUG-002: Seitennummerierung "Seite X von Y" (Puppeteer `footerTemplate`)
+3. BUG-003: Fotos im PDF laden (relative URL / Data-URI Problem)
 
 ## Deployment
 _To be added by /deploy_
