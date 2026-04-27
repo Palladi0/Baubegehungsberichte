@@ -1,8 +1,8 @@
 # PROJ-5: Berichtsgenerierung
 
-## Status: Planned
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-04-27
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung)
@@ -191,8 +191,152 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 | `@dnd-kit/core` | Drag-and-Drop-Basisframework |
 | `@dnd-kit/sortable` | Sortierbare Listen (Abschnitte per Drag & Drop verschieben) |
 
+## Implementierungsnotizen (2026-04-23)
+
+### Was gebaut wurde
+- **Migration** `005_berichte.sql`: Tabellen `einstellungen`, `berichte`, `berichts_versionen` mit RLS-Policies
+- **Typen** `src/types/berichte.ts`: TypeScript-Interfaces für BerichtsSnapshot, Bericht, BerichtsVersion
+- **API-Routes:**
+  - `POST /api/reports/generate` — Bericht aus abgeschlossenen Begehungen generieren (JSONB-Snapshot Version 1)
+  - `GET /api/reports` — Berichte auflisten (Admin: alle; Mitarbeiter: eigene Projekte)
+  - `GET /api/reports/[id]` — Bericht + aktuelle Version laden
+  - `PUT /api/reports/[id]` — Neuen Versions-Snapshot speichern (unveränderlich)
+  - `GET /api/reports/[id]/versions` — Alle Versionen auflisten
+  - `GET /api/reports/[id]/versions/[nr]` — Bestimmte Version laden
+  - `GET /api/reports/[id]/preview` — Serverseitig gerendertes HTML (A4, Print-CSS)
+- **Komponenten:**
+  - `Deckblatt.tsx` — Editierbares Deckblatt (Wetter, Temperatur inline editierbar)
+  - `BerichtsAbschnitt.tsx` — Pro Begehung; Drag-Handle, Sichtbarkeits-Toggle, Freitext, Foto-Grid mit Bildunterschriften
+  - `AbschnittListe.tsx` — @dnd-kit Drag-and-Drop Container
+- **Seiten:**
+  - `/berichte/neu` — Generator-Dialog: Projekt + Datum → Bericht generieren
+  - `/berichte/[id]` — Editor mit Versionsauswahl, Vorschau-Link, Speichern
+
+### Abweichungen vom Spec
+- PDF-Export-Button auf der Editorseite ist deaktiviert (folgt in PROJ-6)
+- Drag-and-Drop zwischen Seiten (Browser-Vorschau ↔ Abschnitte) nicht erforderlich — @dnd-kit sortiert Abschnitte innerhalb der Liste
+
 ## QA Test Results
-_To be added by /qa_
+
+**Datum:** 2026-04-27
+**Tester:** /qa (Claude)
+**Status:** In Review — HIGH-Bug gefunden (BUG-001: XSS in HTML-Renderer)
+
+---
+
+### Acceptance Criteria — Ergebnisse
+
+| # | Kriterium | Status | Anmerkung |
+|---|-----------|--------|-----------|
+| AC-01 | Firmenlogo konfigurierbar im Admin-Bereich | ✅ PASS | Geladen aus `einstellungen.firmenlogo_url`; Fallback: `[Firmenname]` |
+| AC-02 | Berichtstitel „Baustellenbegehung – [Projektname]" | ✅ PASS | Im Editor-Header und im HTML-Preview korrekt |
+| AC-03 | Projektnummer im Deckblatt | ✅ PASS | Korrekt aus Snapshot |
+| AC-04 | Datum der Begehung | ✅ PASS | Deutsch formatiert (toLocaleDateString de-DE) |
+| AC-05 | Uhrzeit der Begehung | ✅ PASS | Aus erster Begehung des Tages |
+| AC-06 | Wetterbedingungen + Temperatur | ✅ PASS | Inline editierbar im Deckblatt; im HTML-Preview mit Einheit |
+| AC-07 | Teilnehmer / Beteiligte (nummeriert, Name + Rolle) | ✅ PASS | Aus allen Begehungen zusammengeführt (dedupliciert nach Name) |
+| AC-08 | Erstellungsdatum + Ersteller | ✅ PASS | Timestamp im Snapshot gespeichert |
+| AC-09 | Abschnittsüberschrift (automatisch oder editierbar) | ✅ PASS | Auto-generiert als „Abschnitt N – Datum", frei editierbar |
+| AC-10 | Freitext-Block pro Abschnitt | ✅ PASS | Textarea mit Resize; enthält Leistungsstand, Vorkommnisse, Maßnahmen |
+| AC-11 | Foto-Galerie: 2 Fotos pro Zeile (in HTML-Preview) | ✅ PASS | HTML-Preview: `grid-template-columns: 1fr 1fr` korrekt |
+| AC-12 | Drag-and-Drop Sortierung | ✅ PASS | @dnd-kit/sortable implementiert; `reihenfolge`-Feld wird aktualisiert |
+| AC-13 | Abschnitte einzeln ausblendbar | ✅ PASS | Switch-Toggle; Counter „N sichtbar / M gesamt" aktualisiert sich |
+| AC-14 | Bericht-Generator-Dialog (Datum + Projekt) | ✅ PASS | `/berichte/neu`; Default: heute; max = heute (kein Zukunftsdatum) |
+| AC-15 | Mehrere Begehungen → separate Abschnitte | ✅ PASS | Generiere-Route gruppiert korrekt nach Begehungs-ID |
+| AC-16 | Bericht manuell editierbar (Texte, Fotos) | ✅ PASS | Alle Felder inline editierbar; Fotos ein-/ausblendbar |
+| AC-17 | Neue Version bei Speichern (kein Überschreiben) | ✅ PASS | JSONB-Snapshot unveränderlich; `version_nr` inkrementell |
+| AC-18 | HTML-Vorschau (WYSIWYG) + Druckansicht | ✅ PASS | Serverseitiges HTML mit `@media print` CSS (A4, 20mm Ränder) |
+
+**Alle 18 Acceptance Criteria bestanden.**
+
+---
+
+### Edge Cases — Ergebnisse
+
+| Edge Case | Status | Anmerkung |
+|-----------|--------|-----------|
+| Keine Begehungen an diesem Tag | ✅ PASS | API gibt 404 + Fehlermeldung zurück; UI zeigt Alert |
+| > 50 Fotos | ⚠️ PARTIAL | Hinweis wird gezeigt, aber über `setFehler()` als Error-State — **BUG-002** |
+| Nachträgliche Datenänderung ändert alte Version nicht | ✅ PASS | JSONB-Snapshot-Ansatz garantiert Unveränderlichkeit |
+| Fehlendes Firmenlogo | ✅ PASS | Editor: `[Firmenname]`-Platzhalter; Renderer: Projektname als Fallback |
+
+---
+
+### Bugs
+
+#### BUG-001 (HIGH) — XSS-Schwachstelle im HTML-Preview-Renderer
+**Datei:** `src/lib/bericht-renderer.ts`
+**Beschreibung:** Benutzerkontrollierte Felder werden direkt als HTML interpoliert — ohne HTML-Entity-Escaping. Betroffen: `abschnitt.titel` (Zeile 34), `foto.bildunterschrift` (Zeile 22), `abschnitt.freitext` (nach `\n→<br/>`, Zeile 35), `deckblatt.projektname`, `kopfzeilenText`, `fusszeileText`.
+**Schritte:** Begehung anlegen mit Titel `<img src=x onerror="alert(document.cookie)">` → Bericht generieren → Vorschau öffnen → XSS wird im Browser ausgeführt.
+**Risiko:** Authentifizierter Mitarbeiter kann JavaScript im Browser eines anderen Nutzers ausführen, der die Vorschau öffnet. Mögliche Auswirkungen: Session-Diebstahl, Aktion im Namen des Opfers.
+**Fix:** `escapeHtml()`-Funktion für alle user-kontrollierten Felder einführen (`&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`, `'` → `&#39;`).
+**Priorität:** Muss vor Deployment behoben werden.
+
+#### BUG-002 (MEDIUM) — Foto-Warnung (> 50 Fotos) nutzt Fehler-State
+**Datei:** `src/app/berichte/neu/page.tsx:61`
+**Beschreibung:** Wenn die API `warnung` zurückgibt, wird dieser Hinweis über `setFehler('Hinweis: ...')` gesetzt. Das nutzt denselben State wie echte Fehler, was semantisch falsch ist. Selbst mit `variant="default"` erscheint es im roten Alert-Kontext und könnte Nutzer irritieren. Nach 2,5 Sekunden wird zur Bericht-Seite weitergeleitet — ohne Möglichkeit den Hinweis zu quittieren.
+**Fix:** Separaten `hinweis`-State einführen (kein Fehler); andere Alert-Variante; Benutzer entscheidet selbst wann er weitergeht.
+
+#### BUG-003 (MEDIUM) — Duplikations-Route gibt 500 bei Datum-Konflikt
+**Datei:** `src/app/api/reports/[id]/duplicate/route.ts:74`
+**Beschreibung:** Wenn für das berechnete neue Datum (`quellDatum + 1 Tag`) bereits ein Bericht für dasselbe Projekt existiert, schlägt der INSERT auf die `UNIQUE(projekt_id, begehungs_datum)`-Constraint fehl. Die Route gibt einen generischen 500-Fehler zurück statt einen hilfreichen 409 Conflict.
+**Schritte:** Bericht für Projekt X am 2026-04-27 erstellen; Bericht für Projekt X am 2026-04-28 erstellen; ersten Bericht duplizieren → 500.
+**Fix:** PostgreSQL Unique-Constraint-Fehler (Code `23505`) erkennen und 409 mit Nachricht „Für [Datum] existiert bereits ein Bericht für dieses Projekt" zurückgeben.
+
+#### BUG-004 (LOW) — Editor zeigt Foto-Galerie mit 3–4 Spalten statt 2
+**Datei:** `src/components/berichte/BerichtsAbschnitt.tsx:102`
+**Beschreibung:** Spec fordert „2 Fotos pro Zeile". Im Editor-View wird `grid-cols-2 sm:grid-cols-3 lg:grid-cols-4` genutzt (bis zu 4 Spalten). Die HTML-Preview zeigt korrekt 2 Spalten. Unterschied zwischen Editor-Ansicht und Druckansicht.
+**Auswirkung:** WYSIWYG ist nicht 100% gegeben (Editor ≠ Preview); Nutzer könnten überrascht sein.
+**Priorität:** Niedrig — Editor-Ansicht ist intentional nutzerfreundlicher als Druckansicht.
+
+---
+
+### Sicherheits-Audit (Red-Team)
+
+| Prüfpunkt | Status | Befund |
+|-----------|--------|--------|
+| Authentifizierung aller API-Endpunkte | ✅ PASS | `requireAuth()` in allen Routes; Middleware redirectet Browser zu `/login` |
+| Autorisierung: Mitarbeiter sehen nur eigene Projekte | ✅ PASS | `projekt_mitarbeiter`-Check in GET/PUT/DELETE |
+| Autorisierung: Admin sieht alle | ✅ PASS | `auth.role === 'admin'`-Pfad in allen Routes |
+| Delete-Schutz | ✅ PASS | Nur Admin oder Ersteller können löschen |
+| Input-Validierung via Zod | ✅ PASS | UUID-Validierung für `projekt_id`, Regex für `datum` |
+| XSS in HTML-Preview | ❌ FAIL | **BUG-001** — User-Input unescaped in HTML interpoliert |
+| SQL-Injection | ✅ PASS | Supabase parametrisierte Queries |
+| Rate Limiting auf generate-Endpunkt | ⚠️ FEHLT | Kein Rate Limiting auf `/api/reports/generate`; andere Endpunkte (extract) haben es — sollte nachgerüstet werden |
+| JSONB-Snapshot-Unveränderlichkeit | ✅ PASS | Kein UPDATE auf `berichts_versionen` |
+| RLS-Policies für `berichte`-Tabelle | ✅ PASS | Migration `005_berichte.sql` hat vollständige SELECT/INSERT/UPDATE/DELETE-Policies |
+
+---
+
+### Automatisierte Tests
+
+**Unit Tests (Vitest):**
+- 35 neue Tests für `src/lib/bericht-renderer.ts` — alle bestanden
+- 2 XSS-Sicherheitstests dokumentieren BUG-001 und schlagen nach dem Fix in `toBe(false)` um
+- Gesamte Test-Suite: **123/123 Tests bestanden** (keine Regressionen)
+
+**E2E Tests (Playwright):**
+- 30 Tests in `tests/PROJ-5-berichtsgenerierung.spec.ts`
+- **7 passed** (2 Redirect-Tests + 5 Security-API-Tests — laufen ohne echte Auth)
+- **23 skipped** (authentifizierte UI-Tests — übersprungen ohne echte Supabase-Session)
+- Alle Security-Tests bestätigen: Alle API-Endpunkte schützen Zugriff ohne Auth ✅
+
+---
+
+### Regressions-Check
+
+| Feature | Status |
+|---------|--------|
+| PROJ-1 (Authentifizierung) | ✅ Keine Regression — Middleware-Logik unverändert |
+| PROJ-2 (Projektverwaltung) | ✅ Keine Regression — Projekt-API unverändert |
+| PROJ-3 (Begehungs-Erfassung) | ✅ Keine Regression — Begehungs-API unverändert |
+| PROJ-4 (Medien-Verwaltung) | ✅ Keine Regression — Medien-API unverändert; alle 88 bestehenden Tests bestehen |
+
+---
+
+### Produktionsbereit?
+
+**NEIN** — BUG-001 (HIGH: XSS in HTML-Preview-Renderer) muss behoben werden, bevor der Feature deployed wird. BUG-002 und BUG-003 (beide MEDIUM) sollten ebenfalls vor Deployment behoben werden.
 
 ## Deployment
 _To be added by /deploy_
