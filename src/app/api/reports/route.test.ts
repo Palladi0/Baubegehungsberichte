@@ -227,12 +227,8 @@ describe('GET /api/reports', () => {
     expect(json.gesamt).toBe(60)
   })
 
-  // ─── Security: IDOR-Test ──────────────────────────────────────────────────
-  // BUG-1: Wenn ein Mitarbeiter projekt_id einer fremden Projekts übergibt, wird
-  // die erlaubteProjektIds-Prüfung umgangen, da der Code bei gesetztem `projektId`
-  // direkt `eq('projekt_id', projektId)` anwendet ohne zu prüfen, ob die ID in
-  // erlaubteProjektIds enthalten ist.
-  it('[BUG-1] Mitarbeiter kann nicht auf Berichte fremder Projekte zugreifen (IDOR)', async () => {
+  // ─── Security: IDOR-Regression ───────────────────────────────────────────
+  it('Mitarbeiter kann nicht auf Berichte fremder Projekte zugreifen (IDOR-Regression)', async () => {
     vi.mocked(requireAuth).mockResolvedValue(mitarbeiterAuth)
     // Nutzer ist nur in proj-1 – übergibt aber proj-99 (fremdes Projekt)
     state.projektMitarbeiter = [{ projekt_id: 'proj-1' }]
@@ -259,8 +255,6 @@ describe('GET /api/reports', () => {
       makeGet('http://localhost/api/reports?projekt_id=proj-99')
     )
     const json = await res.json()
-    // Sollte leer sein (Zugriff verweigert) — aktuell ist dies ein Bug:
-    // die API gibt fälschlicherweise die fremden Berichte zurück.
     expect(json.berichte).toHaveLength(0)
   })
 })

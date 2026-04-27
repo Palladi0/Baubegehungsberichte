@@ -1,6 +1,6 @@
 # PROJ-7: Berichte-Dashboard
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-27
 
@@ -183,7 +183,7 @@ Die **Foto-Anzahl** pro Bericht kommt aus einem Join mit der `fotos`-Tabelle (PR
 
 **QA Date:** 2026-04-27
 **Tester:** /qa skill
-**Status:** ❌ NOT READY — 1 High (Security) + 2 Medium + 3 Low bugs found
+**Status:** ✅ APPROVED — alle Bugs behoben (Re-Check 2026-04-27)
 
 ---
 
@@ -194,20 +194,20 @@ Die **Foto-Anzahl** pro Bericht kommt aus einem Join mit der `fotos`-Tabelle (PR
 | AC-1 | Dashboard ist Startseite nach Login | ✅ PASS | `page.tsx` redirect zu `/berichte`, Middleware schützt Route |
 | AC-2 | Berichtsliste zeigt Projekt, Datum, Ersteller, Status, Fotos, Erstellt | ✅ PASS | Alle Pflichtfelder in `BerichteTabelle.tsx` vorhanden |
 | AC-3 | Filter: Projekt, Datumsbereich, Status | ✅ PASS | `FilterLeiste.tsx` hat alle drei Filter |
-| AC-4 | Suchfeld: Volltextsuche in Projektname und Berichtsdatum | ❌ FAIL | **BUG-2**: Suche durchsucht nur Projektnamen, nicht Datum |
-| AC-5 | Sortierung: Datum (Standard), Projekt, Ersteller | ⚠️ PARTIAL | Optionen vorhanden, aber **BUG-6**: Projekt-Sortierung nutzt UUID statt Name |
-| AC-6 | Schnellaktionen: Öffnen, PDF herunterladen, Duplizieren, Löschen | ⚠️ PARTIAL | **BUG-5**: PDF-Download versteckt statt deaktiviert+Tooltip wenn kein PDF |
+| AC-4 | Suchfeld: Volltextsuche in Projektname und Berichtsdatum | ✅ PASS | **BUG-2 behoben**: OR-Filter auf `projektname` + `begehungs_datum.ilike` |
+| AC-5 | Sortierung: Datum (Standard), Projekt, Ersteller | ✅ PASS | **BUG-6 behoben**: `order('name', { referencedTable: 'projekte' })` |
+| AC-6 | Schnellaktionen: Öffnen, PDF herunterladen, Duplizieren, Löschen | ✅ PASS | **BUG-5 behoben**: PDF-Download immer sichtbar, disabled+Tooltip wenn kein PDF |
 | AC-7 | „Neuer Bericht"-Button oben rechts → /berichte/neu | ✅ PASS | |
 | AC-8 | Löschung: Bestätigungsdialog, nur Admin/Eigentümer | ✅ PASS | `LöschDialog.tsx` + API-Check korrekt |
 | AC-9 | Statusanzeige: Entwurf (gelb), Fertig (grün) | ✅ PASS | `StatusBadge` mit korrekten Tailwind-Klassen |
-| AC-10 | Leere Ansicht mit Hilfetext | ⚠️ PARTIAL | **BUG-4**: Kein Unterschied zwischen „keine Berichte" vs. „kein Treffer für Filter" |
-| AC-11 | Paginierung (max. 25 Einträge/Seite) | ⚠️ PARTIAL | **BUG-3**: Seiten-Buttons zeigen immer Seiten 1–5; Seite 6+ nicht erreichbar |
+| AC-10 | Leere Ansicht mit Hilfetext | ✅ PASS | **BUG-4 behoben**: `istGefiltert`-Prop unterscheidet Text |
+| AC-11 | Paginierung (max. 25 Einträge/Seite) | ✅ PASS | **BUG-3 behoben**: Sliding-Window-Pagination mit „…"-Sprungmarken |
 
 ---
 
-### Bugs Found
+### Bugs Found (alle behoben)
 
-#### 🔴 BUG-1 — IDOR: Mitarbeiter kann Berichte fremder Projekte abrufen (High / Security)
+#### ✅ BUG-1 — IDOR: Mitarbeiter kann Berichte fremder Projekte abrufen (High / Security) — BEHOBEN
 **Schweregrad:** High (Security — IDOR / Insecure Direct Object Reference)
 **Datei:** `src/app/api/reports/route.ts:84-87`
 
@@ -243,7 +243,7 @@ if (projektId) {
 
 ---
 
-#### 🟡 BUG-2 — Suche durchsucht nicht das Datum (Medium)
+#### ✅ BUG-2 — Suche durchsucht nicht das Datum (Medium) — BEHOBEN
 **Schweregrad:** Medium
 **Datei:** `src/app/api/reports/route.ts:41-51`
 
@@ -258,7 +258,7 @@ Die Spec fordert „Volltextsuche in Projektname und Berichtsdatum". Die Impleme
 
 ---
 
-#### 🟡 BUG-3 — Paginierung: Seiten 6+ nicht erreichbar (Medium)
+#### ✅ BUG-3 — Paginierung: Seiten 6+ nicht erreichbar (Medium) — BEHOBEN
 **Schweregrad:** Medium
 **Datei:** `src/components/berichte/BerichteTabelle.tsx:197-208`
 
@@ -276,7 +276,7 @@ Bei mehr als 5 Seiten (> 125 Berichte) sind Seiten 6+ nicht erreichbar. Der „W
 
 ---
 
-#### 🟢 BUG-4 — Leere Ansicht unterscheidet nicht zwischen „keine Berichte" und „kein Treffer" (Low)
+#### ✅ BUG-4 — Leere Ansicht unterscheidet nicht zwischen „keine Berichte" und „kein Treffer" (Low) — BEHOBEN
 **Schweregrad:** Low
 **Datei:** `src/components/berichte/BerichteTabelle.tsx:72-84`
 
@@ -287,7 +287,7 @@ Die Spec fordert für den Fall „keine Berichte vorhanden": „Noch keine Beric
 
 ---
 
-#### 🟢 BUG-5 — PDF-Download-Aktion versteckt statt deaktiviert (Low)
+#### ✅ BUG-5 — PDF-Download-Aktion versteckt statt deaktiviert (Low) — BEHOBEN
 **Schweregrad:** Low
 **Datei:** `src/components/berichte/AktionenDropdown.tsx:113-119`
 
@@ -298,7 +298,7 @@ Die Spec fordert: „PDF herunterladen"-Aktion „deaktiviert + Tooltip wenn kei
 
 ---
 
-#### 🟢 BUG-6 — Sortierung „Projekt" nutzt UUID statt Projektname (Low)
+#### ✅ BUG-6 — Sortierung „Projekt" nutzt UUID statt Projektname (Low) — BEHOBEN
 **Schweregrad:** Low
 **Datei:** `src/app/api/reports/route.ts:108`
 
@@ -345,10 +345,11 @@ case 'projekt':
 
 ### Automated Test Summary
 
-**Unit Tests:** `src/app/api/reports/route.test.ts` — 7 Tests (1 schlägt fehl: BUG-1 bewiesen)
-**Unit Tests:** `src/app/api/reports/[id]/route.test.ts` — 5 Tests (alle grün)
-**Unit Tests:** `src/app/api/reports/[id]/status/route.test.ts` — 5 Tests (alle grün)
+**Unit Tests:** `src/app/api/reports/route.test.ts` — 7 Tests ✅ alle grün (inkl. IDOR-Regression)
+**Unit Tests:** `src/app/api/reports/[id]/route.test.ts` — 5 Tests ✅ alle grün
+**Unit Tests:** `src/app/api/reports/[id]/status/route.test.ts` — 5 Tests ✅ alle grün
 **E2E Tests:** `tests/PROJ-7-berichte-dashboard.spec.ts` — 18 Tests (2 pass: Auth-Redirects; 16 skip: kein Supabase-Session in CI)
+**Gesamt Unit-Tests:** 144/144 ✅
 
 ---
 
@@ -360,16 +361,16 @@ Alle vorherigen Test-Suites (PROJ-1 bis PROJ-6): ✅ Kein Fehler — 143 Tests g
 
 ### Production Readiness
 
-**❌ NOT READY** — 1 High (Security) Bug muss vor Deployment behoben werden.
+**✅ READY** — Alle 6 Bugs behoben. Keine Critical/High Bugs offen.
 
-| Priorität | Bug | Blockiert Deployment? |
-|-----------|-----|-----------------------|
-| 1 (P0) | BUG-1: IDOR Mitarbeiter sieht fremde Berichte | ✅ JA — muss behoben werden |
-| 2 (P1) | BUG-2: Suche durchsucht nicht Datum | Nein |
-| 3 (P1) | BUG-3: Paginierung > 5 Seiten defekt | Nein (bei < 126 Berichten kein Problem) |
-| 4 (P2) | BUG-4: Leere-Zustand Text nicht spec-konform | Nein |
-| 5 (P2) | BUG-5: PDF-Download versteckt statt deaktiviert | Nein |
-| 6 (P2) | BUG-6: Projekt-Sortierung falsch (UUID) | Nein |
+| Bug | Status |
+|-----|--------|
+| BUG-1: IDOR Mitarbeiter sieht fremde Berichte | ✅ Behoben |
+| BUG-2: Suche durchsucht nicht Datum | ✅ Behoben |
+| BUG-3: Paginierung > 5 Seiten defekt | ✅ Behoben |
+| BUG-4: Leere-Zustand Text nicht spec-konform | ✅ Behoben |
+| BUG-5: PDF-Download versteckt statt deaktiviert | ✅ Behoben |
+| BUG-6: Projekt-Sortierung falsch (UUID) | ✅ Behoben |
 
 ## Deployment
 _To be added by /deploy_

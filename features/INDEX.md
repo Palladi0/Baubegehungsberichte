@@ -20,7 +20,7 @@
 | PROJ-4 | Medien-Verwaltung | Approved | [PROJ-4](PROJ-4-medien-verwaltung.md) | 2026-04-21 |
 | PROJ-5 | Berichtsgenerierung | Approved | [PROJ-5](PROJ-5-berichtsgenerierung.md) | 2026-04-21 |
 | PROJ-6 | PDF-Export | Approved | [PROJ-6](PROJ-6-pdf-export.md) | 2026-04-21 |
-| PROJ-7 | Berichte-Dashboard | In Review | [PROJ-7](PROJ-7-berichte-dashboard.md) | 2026-04-21 |
+| PROJ-7 | Berichte-Dashboard | Approved | [PROJ-7](PROJ-7-berichte-dashboard.md) | 2026-04-21 |
 | PROJ-8 | WhatsApp-Integration (Twilio Sandbox) | Deployed | [PROJ-8](PROJ-8-whatsapp-integration.md) | 2026-04-21 |
 | PROJ-9 | Sprach-Transkription (Whisper) | In Progress | [PROJ-9](PROJ-9-sprach-transkription.md) | 2026-04-21 |
 | PROJ-10 | Automatische Projektzuordnung | In Progress | [PROJ-10](PROJ-10-automatische-projektzuordnung.md) | 2026-04-21 |
