@@ -296,25 +296,49 @@ describe('renderBerichtHTML — Vorlagen', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('renderBerichtHTML — XSS-Sicherheit', () => {
-  it('SICHERHEIT: Script-Tags in Abschnittstitel werden nicht ausgeführt', () => {
+  it('SICHERHEIT: Script-Tags in Abschnittstitel werden HTML-escaped (kein XSS)', () => {
     const s = makeSnapshot()
     s.abschnitte[0].titel = '<script>alert("XSS")</script>'
     const html = renderBerichtHTML(s)
-    // Der String darf im HTML vorhanden sein, aber muss escaped sein
-    // ACHTUNG: Aktuell ist dies eine bekannte Schwachstelle (BUG-001)
-    // Dieser Test dokumentiert das aktuelle Verhalten und schlägt fehl sobald der Fix greift
-    const hasUnescapedScript = html.includes('<script>alert("XSS")</script>')
-    // Erwartetes Verhalten nach Fix: false — HTML-escaped
-    // Aktuelles Verhalten (Bug): true — unescaped
-    expect(hasUnescapedScript).toBe(true) // Muss false sein nach BUG-001 Fix
+    // Unescaped Tag darf nicht im HTML vorkommen
+    expect(html).not.toContain('<script>alert("XSS")</script>')
+    // Escaped Variante muss vorhanden sein
+    expect(html).toContain('&lt;script&gt;')
   })
 
-  it('SICHERHEIT: Script-Tags in Bildunterschrift werden nicht ausgeführt', () => {
+  it('SICHERHEIT: Event-Handler in Bildunterschrift werden HTML-escaped (kein XSS)', () => {
     const s = makeSnapshot()
     s.abschnitte[0].fotos[0].bildunterschrift = '<img src=x onerror="alert(1)">'
     const html = renderBerichtHTML(s)
-    const hasUnescapedXSS = html.includes('<img src=x onerror="alert(1)">')
-    // Erwartetes Verhalten nach BUG-001 Fix: false
-    expect(hasUnescapedXSS).toBe(true) // Muss false sein nach Fix
+    // Unescaped Tag darf nicht im Output erscheinen
+    expect(html).not.toContain('<img src=x onerror="alert(1)">')
+    expect(html).toContain('&lt;img')
+  })
+
+  it('SICHERHEIT: HTML-Entities in Freitext werden escaped', () => {
+    const s = makeSnapshot()
+    s.abschnitte[0].freitext = '<b>fett</b> & "Anführung"'
+    const html = renderBerichtHTML(s)
+    expect(html).not.toContain('<b>fett</b>')
+    expect(html).toContain('&lt;b&gt;fett&lt;/b&gt;')
+    expect(html).toContain('&amp;')
+    expect(html).toContain('&quot;')
+  })
+
+  it('SICHERHEIT: Projektname mit Sonderzeichen wird escaped', () => {
+    const s = makeSnapshot()
+    s.deckblatt.projektname = '<script>alert(1)</script>'
+    const html = renderBerichtHTML(s)
+    expect(html).not.toContain('<script>alert(1)</script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('SICHERHEIT: Teilnehmer-Name und Rolle werden escaped', () => {
+    const s = makeSnapshot()
+    s.deckblatt.teilnehmer = [{ name: '<b>Hacker</b>', rolle: '"><script>x</script>' }]
+    const html = renderBerichtHTML(s)
+    expect(html).not.toContain('<b>Hacker</b>')
+    expect(html).not.toContain('<script>x</script>')
+    expect(html).toContain('&lt;b&gt;Hacker&lt;/b&gt;')
   })
 })

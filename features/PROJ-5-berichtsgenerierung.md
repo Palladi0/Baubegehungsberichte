@@ -1,6 +1,6 @@
 # PROJ-5: Berichtsgenerierung
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-27
 
@@ -220,7 +220,7 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 
 **Datum:** 2026-04-27
 **Tester:** /qa (Claude)
-**Status:** In Review — HIGH-Bug gefunden (BUG-001: XSS in HTML-Renderer)
+**Status:** Approved — alle Bugs behoben, 126/126 Tests bestanden
 
 ---
 
@@ -264,30 +264,23 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 
 ### Bugs
 
-#### BUG-001 (HIGH) — XSS-Schwachstelle im HTML-Preview-Renderer
+#### BUG-001 (HIGH) — XSS-Schwachstelle im HTML-Preview-Renderer ✅ BEHOBEN
 **Datei:** `src/lib/bericht-renderer.ts`
-**Beschreibung:** Benutzerkontrollierte Felder werden direkt als HTML interpoliert — ohne HTML-Entity-Escaping. Betroffen: `abschnitt.titel` (Zeile 34), `foto.bildunterschrift` (Zeile 22), `abschnitt.freitext` (nach `\n→<br/>`, Zeile 35), `deckblatt.projektname`, `kopfzeilenText`, `fusszeileText`.
-**Schritte:** Begehung anlegen mit Titel `<img src=x onerror="alert(document.cookie)">` → Bericht generieren → Vorschau öffnen → XSS wird im Browser ausgeführt.
-**Risiko:** Authentifizierter Mitarbeiter kann JavaScript im Browser eines anderen Nutzers ausführen, der die Vorschau öffnet. Mögliche Auswirkungen: Session-Diebstahl, Aktion im Namen des Opfers.
-**Fix:** `escapeHtml()`-Funktion für alle user-kontrollierten Felder einführen (`&` → `&amp;`, `<` → `&lt;`, `>` → `&gt;`, `"` → `&quot;`, `'` → `&#39;`).
-**Priorität:** Muss vor Deployment behoben werden.
+**Beschreibung:** Benutzerkontrollierte Felder wurden direkt als HTML interpoliert — ohne HTML-Entity-Escaping.
+**Fix:** `escHtml()`-Funktion eingeführt (Zeile 11–19); alle user-kontrollierten Felder (Titel, Freitext, Bildunterschrift, Projektname, Teilnehmer, Logo-URL, Kopf-/Fußzeile) werden jetzt escaped.
+**Geprüft durch:** 5 neue Unit-Tests bestätigen korrekte Escaping-Logik — alle grün.
 
-#### BUG-002 (MEDIUM) — Foto-Warnung (> 50 Fotos) nutzt Fehler-State
-**Datei:** `src/app/berichte/neu/page.tsx:61`
-**Beschreibung:** Wenn die API `warnung` zurückgibt, wird dieser Hinweis über `setFehler('Hinweis: ...')` gesetzt. Das nutzt denselben State wie echte Fehler, was semantisch falsch ist. Selbst mit `variant="default"` erscheint es im roten Alert-Kontext und könnte Nutzer irritieren. Nach 2,5 Sekunden wird zur Bericht-Seite weitergeleitet — ohne Möglichkeit den Hinweis zu quittieren.
-**Fix:** Separaten `hinweis`-State einführen (kein Fehler); andere Alert-Variante; Benutzer entscheidet selbst wann er weitergeht.
+#### BUG-002 (MEDIUM) — Foto-Warnung (> 50 Fotos) nutzt Fehler-State ✅ BEHOBEN
+**Datei:** `src/app/berichte/neu/page.tsx`
+**Fix:** Separater `warnung`-State eingeführt; eigenes `<Alert>` mit `<Info>`-Icon; kein `setFehler()` mehr für Warnungen.
 
-#### BUG-003 (MEDIUM) — Duplikations-Route gibt 500 bei Datum-Konflikt
-**Datei:** `src/app/api/reports/[id]/duplicate/route.ts:74`
-**Beschreibung:** Wenn für das berechnete neue Datum (`quellDatum + 1 Tag`) bereits ein Bericht für dasselbe Projekt existiert, schlägt der INSERT auf die `UNIQUE(projekt_id, begehungs_datum)`-Constraint fehl. Die Route gibt einen generischen 500-Fehler zurück statt einen hilfreichen 409 Conflict.
-**Schritte:** Bericht für Projekt X am 2026-04-27 erstellen; Bericht für Projekt X am 2026-04-28 erstellen; ersten Bericht duplizieren → 500.
-**Fix:** PostgreSQL Unique-Constraint-Fehler (Code `23505`) erkennen und 409 mit Nachricht „Für [Datum] existiert bereits ein Bericht für dieses Projekt" zurückgeben.
+#### BUG-003 (MEDIUM) — Duplikations-Route gibt 500 bei Datum-Konflikt ✅ BEHOBEN
+**Datei:** `src/app/api/reports/[id]/duplicate/route.ts`
+**Fix:** Postgres Unique-Constraint-Fehlercode `23505` wird erkannt und gibt 409 mit Klartextmeldung zurück.
 
-#### BUG-004 (LOW) — Editor zeigt Foto-Galerie mit 3–4 Spalten statt 2
+#### BUG-004 (LOW) — Editor zeigt Foto-Galerie mit 3–4 Spalten statt 2 ✅ BEHOBEN
 **Datei:** `src/components/berichte/BerichtsAbschnitt.tsx:102`
-**Beschreibung:** Spec fordert „2 Fotos pro Zeile". Im Editor-View wird `grid-cols-2 sm:grid-cols-3 lg:grid-cols-4` genutzt (bis zu 4 Spalten). Die HTML-Preview zeigt korrekt 2 Spalten. Unterschied zwischen Editor-Ansicht und Druckansicht.
-**Auswirkung:** WYSIWYG ist nicht 100% gegeben (Editor ≠ Preview); Nutzer könnten überrascht sein.
-**Priorität:** Niedrig — Editor-Ansicht ist intentional nutzerfreundlicher als Druckansicht.
+**Fix:** Grid-Klassen auf `grid-cols-2` ohne responsive Erweiterung reduziert — Editor-View entspricht jetzt der 2-Spalten-Druckansicht.
 
 ---
 
@@ -300,7 +293,7 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 | Autorisierung: Admin sieht alle | ✅ PASS | `auth.role === 'admin'`-Pfad in allen Routes |
 | Delete-Schutz | ✅ PASS | Nur Admin oder Ersteller können löschen |
 | Input-Validierung via Zod | ✅ PASS | UUID-Validierung für `projekt_id`, Regex für `datum` |
-| XSS in HTML-Preview | ❌ FAIL | **BUG-001** — User-Input unescaped in HTML interpoliert |
+| XSS in HTML-Preview | ✅ PASS | BUG-001 behoben — `escHtml()` für alle user-kontrollierten Felder |
 | SQL-Injection | ✅ PASS | Supabase parametrisierte Queries |
 | Rate Limiting auf generate-Endpunkt | ⚠️ FEHLT | Kein Rate Limiting auf `/api/reports/generate`; andere Endpunkte (extract) haben es — sollte nachgerüstet werden |
 | JSONB-Snapshot-Unveränderlichkeit | ✅ PASS | Kein UPDATE auf `berichts_versionen` |
@@ -311,9 +304,8 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 ### Automatisierte Tests
 
 **Unit Tests (Vitest):**
-- 35 neue Tests für `src/lib/bericht-renderer.ts` — alle bestanden
-- 2 XSS-Sicherheitstests dokumentieren BUG-001 und schlagen nach dem Fix in `toBe(false)` um
-- Gesamte Test-Suite: **123/123 Tests bestanden** (keine Regressionen)
+- 39 Tests für `src/lib/bericht-renderer.ts` (5 neue XSS-Sicherheitstests nach Fix hinzugefügt)
+- Gesamte Test-Suite: **126/126 Tests bestanden** (keine Regressionen)
 
 **E2E Tests (Playwright):**
 - 30 Tests in `tests/PROJ-5-berichtsgenerierung.spec.ts`
@@ -336,7 +328,7 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 
 ### Produktionsbereit?
 
-**NEIN** — BUG-001 (HIGH: XSS in HTML-Preview-Renderer) muss behoben werden, bevor der Feature deployed wird. BUG-002 und BUG-003 (beide MEDIUM) sollten ebenfalls vor Deployment behoben werden.
+**JA** — Alle 4 Bugs behoben. 126/126 Unit-Tests bestanden, keine Regressionen. Bereit für `/deploy`.
 
 ## Deployment
 _To be added by /deploy_
