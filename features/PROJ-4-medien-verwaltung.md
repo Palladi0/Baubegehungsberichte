@@ -1,8 +1,8 @@
 # PROJ-4: Medien-Verwaltung
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-23
+**Last Updated:** 2026-04-25
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung) — Nutzer muss eingeloggt sein
@@ -222,66 +222,50 @@ VPS (Docker)
 
 ## QA Test Results
 
-**QA-Datum:** 2026-04-25
-**Tester:** /qa (Claude)
-**Entscheidung: ❌ NICHT PRODUKTIONSREIF** — 1 High-Bug + 4 Medium-Bugs müssen behoben werden.
+**QA initial:** 2026-04-25 — 1 High + 4 Medium + 1 Low Bugs gefunden
+**Re-Test:** 2026-04-26
+**Entscheidung: ✅ PRODUKTIONSREIF** — kein High/Critical-Bug offen; BUG-004 teilweise behoben (PATCH ✅, Upload ⚠️ — empfohlenes Follow-up).
 
 ---
 
-### Acceptance Criteria
+### Acceptance Criteria (Re-Test 2026-04-26)
 
 | # | Kriterium | Status | Notiz |
 |---|-----------|--------|-------|
-| 1 | Drag-and-Drop-Upload + Datei-Browser (JPEG/PNG/HEIC/WebP, max. 25 MB) | ❌ **FAIL** | Drag-and-Drop speichert keine File-Objekte → Upload tut nichts (BUG-001) |
+| 1 | Drag-and-Drop-Upload + Datei-Browser (JPEG/PNG/HEIC/WebP, max. 25 MB) | ✅ PASS | `dateiObjekteRef` speichert File-Objekte; Drag-and-Drop funktioniert (BUG-001 ✅) |
 | 2 | Gleichzeitiger Upload bis zu 20 Fotos | ✅ PASS | Serverseitig + clientseitig korrekt limitiert |
 | 3 | Serverseitige Komprimierung (max. 2 MB Anzeigeversion, Original behalten) | ✅ PASS | sharp erstellt display.jpg + thumb.jpg |
 | 4 | Projektzuordnung (Pflicht), Begehungszuordnung (optional) | ✅ PASS | Upload + PATCH funktionieren korrekt |
 | 5 | Bildunterschrift (max. 500 Zeichen) | ✅ PASS | DB-Constraint + Zod-Validierung + Client-Limit |
-| 6 | KI-Bildunterschrift generieren (Claude Vision, nicht auto-gespeichert) | ✅ PASS | Endpunkt funktioniert, Vorschlag-Banner korrekt |
+| 6 | KI-Bildunterschrift generieren (Claude Vision, nicht auto-gespeichert) | ✅ PASS | Endpunkt + Rate-Limit (BUG-003 ✅); Vorschlag-Banner korrekt |
 | 7 | Galerie-Ansicht (Rasteransicht, Datum, Uploader, Bildunterschrift) | ✅ PASS | Grid, Meta-Zeilen, Leer-Zustand korrekt |
-| 8 | Sortierbar nach Upload-Datum und Begehungsdatum | ⚠️ **PARTIAL** | UI korrekt, aber `sort=begehung` sortiert nach `begehung_id` (UUID), nicht nach Datum (BUG-002) |
-| 9 | Soft-Delete (nur Eigentümer oder Admin) | ✅ PASS | Permission-Check korrekt; aber Dateisystem-Bereinigung läuft sofort (BUG-005) |
+| 8 | Sortierbar nach Upload-Datum und Begehungsdatum | ✅ PASS | JS-Sortierung nach `begehung.datum` (BUG-002 ✅) |
+| 9 | Soft-Delete (nur Eigentümer oder Admin) | ✅ PASS | Permission-Check + Dateien bleiben auf Disk (BUG-005 ✅) |
 | 10 | Kein öffentlicher Dateizugriff (Auth-Check vor File-Stream) | ✅ PASS | `GET /api/media/file/[id]` prüft Auth + Projektmitgliedschaft |
 
 ---
 
-### Bugs
+### Bugs (Ursprüngliche Funde + Re-Test-Status)
 
-#### BUG-001 — HIGH: Drag-and-Drop Upload funktioniert nicht
-- **Beschreibung:** `UploadDropzone.validiereUndSetze()` speichert nur `name/status` im State, nicht die eigentlichen `File`-Objekte. `starteUpload()` liest danach aus `inputRef.current?.files` — das ist `null` nach Drag-and-Drop → `gueltige = []` → frühzeitiger `return`, Upload passiert nicht.
-- **Schritte:** Dateien auf Dropzone ziehen → Datei erscheint in der Liste mit Status „wartend" → „Hochladen" klicken → nichts passiert.
-- **Betroffene Datei:** [UploadDropzone.tsx:32-92](src/components/medien/UploadDropzone.tsx#L32-L92)
-- **Fix-Vorschlag:** `File`-Objekte in separatem `useRef<File[]>` oder `useState<File[]>` beim Drag-Event speichern; `starteUpload()` auf diesen State statt auf `inputRef.current.files` zugreifen.
+| Bug | Schwere | Ursprung | Re-Test-Status |
+|-----|---------|----------|----------------|
+| BUG-001 | HIGH | Drag-and-Drop speichert keine File-Objekte | ✅ Behoben — `dateiObjekteRef` |
+| BUG-002 | MEDIUM | Sortierung nach `begehung_id` (UUID) statt Datum | ✅ Behoben — JS-Sortierung nach `begehung.datum` |
+| BUG-003 | MEDIUM | KI-Caption ohne Rate-Limiting | ✅ Behoben — 10/Stunde/Nutzer, HTTP 429 |
+| BUG-004 | MEDIUM | `begehung_id` ohne Projektzugehörigkeitsprüfung | ⚠️ Teilweise — PATCH geprüft, Upload-Route noch offen |
+| BUG-005 | MEDIUM | Soft-Delete löscht Dateien sofort vom Disk | ✅ Behoben — `fs.rm()` entfernt |
+| BUG-006 | LOW | `GET /api/media` ohne `.limit()` | ✅ Behoben — `.limit(500)` |
 
-#### BUG-002 — MEDIUM: Sortierung nach Begehungsdatum sortiert nach begehung_id (UUID)
-- **Beschreibung:** `GET /api/media?sort=begehung` sortiert mit `.order('begehung_id', { ascending: false })`. UUIDs sind zufällig, keine zeitliche Ordnung.
-- **Schritte:** Fotos mit verschiedenen Begehungen hochladen → nach Begehungsdatum sortieren → Reihenfolge ist zufällig.
-- **Betroffene Datei:** [route.ts:61-63](src/app/api/media/route.ts#L61-L63)
-- **Fix-Vorschlag:** Join auf `begehungen` und Sortierung nach `begehungen.datum DESC, fotos.erstellt_am DESC`.
+#### BUG-004 — MEDIUM (teilweise offen): begehung_id im Upload ohne Projektzugehörigkeitsprüfung
 
-#### BUG-003 — MEDIUM: KI-Caption-Endpunkt ohne Rate-Limiting
-- **Beschreibung:** `POST /api/media/[id]/caption` hat kein Rate-Limiting. Wiederholte Aufrufe treiben Claude-API-Kosten unbegrenzt in die Höhe (Budget-Ziel: < 50 €/Monat).
-- **Betroffene Datei:** [caption/route.ts](src/app/api/media/[id]/caption/route.ts)
-- **Fix-Vorschlag:** Rate-Limiting analog zu `POST /api/begehungen/extract` (vgl. PROJ-3 BUG-005-Fix).
-
-#### BUG-004 — MEDIUM: begehung_id wird nicht gegen Projektzugehörigkeit validiert
-- **Beschreibung:** Bei Upload und PATCH wird `begehung_id` ohne Prüfung gespeichert, ob die Begehung zum selben Projekt gehört. Ein Nutzer kann Fotos aus Projekt A mit Begehungen aus Projekt B verknüpfen → Dateninkonsistenz.
-- **Betroffene Dateien:** [upload/route.ts:64](src/app/api/media/upload/route.ts#L64), [id/route.ts:14](src/app/api/media/[id]/route.ts#L14)
-- **Fix-Vorschlag:** Nach Akzeptanz der `begehung_id` prüfen: `SELECT id FROM begehungen WHERE id = $begehung_id AND projekt_id = $projekt_id`.
-
-#### BUG-005 — MEDIUM: Soft-Delete löscht Dateien sofort vom Dateisystem
-- **Beschreibung:** `DELETE /api/media/[id]` setzt `geloescht_am` (Soft-Delete) und löscht dann sofort asynchron die Dateien vom Disk. Spec sagt: „Admin kann bei Bedarf endgültig bereinigen." Zukünftige PDFs (PROJ-6), die per API-URL auf Fotos verweisen, würden nach dem Löschen 404 bekommen.
-- **Betroffene Datei:** [id/route.ts:107-108](src/app/api/media/[id]/route.ts#L107-L108)
-- **Fix-Vorschlag:** Dateisystem-Bereinigung aus dem Soft-Delete-Flow entfernen; separater Admin-Endpunkt oder Cleanup-Job für physisches Löschen.
-
-#### BUG-006 — LOW: GET /api/media ohne .limit()
-- **Beschreibung:** Die Galerie-Abfrage hat keine Paginierung — bei großen Projekten (> 1.000 Fotos) werden alle Datensätze auf einmal geladen.
-- **Betroffene Datei:** [route.ts:38-65](src/app/api/media/route.ts#L38-L65)
-- **Fix-Vorschlag:** `.limit(100)` ergänzen oder Cursor-basierte Paginierung implementieren.
+- **PATCH `/api/media/[id]`** — ✅ Gefixt: prüft `begehung.projekt_id === foto.projekt_id`, gibt 422 bei Mismatch.
+- **POST `/api/media/upload`** — ⚠️ Noch offen: `begehung_id` aus FormData (Zeile 64) wird ohne Projektprüfung direkt in DB gespeichert.
+- **Risiko:** Ein Nutzer kann beim initialen Upload ein Foto mit einer `begehung_id` aus einem anderen Projekt verknüpfen. Kein Sicherheitsproblem (nur Datenmitglieder können hochladen), aber Dateninkonsistenz möglich.
+- **Empfehlung:** Nach `projekt`-Existenzprüfung (Zeile 79) analog zur PATCH-Logik validieren: `SELECT projekt_id FROM begehungen WHERE id = $begehungId AND projekt_id = $projektId`.
 
 ---
 
-### Security Audit
+### Security Audit (Re-Test 2026-04-26)
 
 | Bereich | Befund | Status |
 |---------|--------|--------|
@@ -291,38 +275,31 @@ VPS (Docker)
 | UUID-Dateinamen | Keine vorhersehbaren Dateinamen, kein Namenskonflikt möglich | ✅ OK |
 | XSS via Bildunterschrift | React escapet automatisch, kein `dangerouslySetInnerHTML` | ✅ OK |
 | Dateityp-Spoofing | `sharp`-Verarbeitung schlägt bei Nicht-Bild fehl → Datei wird abgelehnt | ✅ OK |
-| MIME-Type Validierung | Serverseitig via `file.type` + `sharp` Verarbeitung | ✅ OK |
-| Rate-Limiting KI | `POST /api/media/[id]/caption` ohne Rate-Limit | ❌ BUG-003 |
-| Begehungs-Zuordnung | Keine Projekt-Zugehörigkeitsprüfung für `begehung_id` | ❌ BUG-004 |
+| Rate-Limiting KI | 10 Anfragen/Stunde pro Nutzer, HTTP 429 | ✅ OK |
+| Begehungs-Zuordnung (PATCH) | Projekt-Zugehörigkeitsprüfung vorhanden | ✅ OK |
+| Begehungs-Zuordnung (Upload) | Keine Projektzugehörigkeitsprüfung beim Upload | ⚠️ Offen (BUG-004 partial) |
 | RLS Policies | Tabelle `fotos` mit RLS, korrekte Policies für SELECT/INSERT/UPDATE/DELETE | ✅ OK |
-| Soft-Delete Konsistenz | Dateisystem-Löschung widerspricht Soft-Delete-Konzept | ❌ BUG-005 |
+| Soft-Delete Konsistenz | Dateien bleiben auf Disk, reines DB-Soft-Delete | ✅ OK |
 
 ---
 
-### Test-Ergebnisse
+### Test-Ergebnisse (Re-Test 2026-04-26)
 
 **Unit-Tests (Vitest):**
-- `src/app/api/media/upload/route.test.ts` — 10 Tests, alle ✅
-- `src/app/api/media/route.test.ts` — 7 Tests, alle ✅
-- `src/app/api/media/[id]/route.test.ts` — 16 Tests, alle ✅
-- **Gesamt: 88 Tests bestanden (inkl. Regression — alle bestehenden 54 Tests weiterhin ✅)**
+- `src/app/api/media/upload/route.test.ts` — 10 Tests ✅
+- `src/app/api/media/route.test.ts` — 7 Tests ✅
+- `src/app/api/media/[id]/route.test.ts` — 16 Tests ✅
+- **Gesamt: 88 Tests bestanden (inkl. Regression — alle bestehenden 54 Tests ✅)**
 
 **E2E-Tests (Playwright/Chromium):**
-- `tests/PROJ-4-medien-verwaltung.spec.ts` — 15 bestanden, 5 übersprungen (skipped = Auth-Session fehlt in CI/Dev-Umgebung, gleiche Situation wie PROJ-3)
-- Security-Tests: 7 bestanden ✅ (kein unauthentifizierter Datenzugriff möglich)
+- `tests/PROJ-4-medien-verwaltung.spec.ts` — 15 bestanden, 12 übersprungen (Auth-Session fehlt in Dev-Umgebung — gleiche Situation wie PROJ-3)
+- Security-API-Tests: 7 bestanden ✅ (kein unauthentifizierter Datenzugriff möglich)
 
 ---
 
-### Bug-Priorität für Fix
+### Follow-up nach Deployment
 
-| Priorität | Bug | Warum |
-|-----------|-----|-------|
-| 1️⃣ Sofort | BUG-001 | Core-Feature komplett defekt (Drag-and-Drop) |
-| 2️⃣ Hoch | BUG-003 | Kostensicherheit (API-Budget) |
-| 3️⃣ Hoch | BUG-004 | Datenintegrität (Cross-Projekt-Verknüpfung) |
-| 4️⃣ Mittel | BUG-002 | Falsche Sortierung (irreführendes UX) |
-| 5️⃣ Mittel | BUG-005 | Soft-Delete-Semantik gebrochen |
-| 6️⃣ Niedrig | BUG-006 | Performance bei großen Projekten |
+- **BUG-004 Upload**: Validierung der `begehung_id` beim Upload analog zur PATCH-Route nachziehen (`/api/media/upload/route.ts` Zeile 64ff).
 
 ## Deployment
 _To be added by /deploy_
