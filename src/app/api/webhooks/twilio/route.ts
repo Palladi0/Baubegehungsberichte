@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase'
+import { createServiceClient } from '@/lib/supabase-service'
 import { validateTwilioSignature, twimlResponse } from '@/lib/twilio'
+import { hasPendingClarification, resolveWithClarification, extractHashtags } from '@/lib/assignment-worker'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,6 +71,16 @@ export async function POST(request: NextRequest) {
     .eq('is_active', true)
     .maybeSingle()
 
+  // 3b. ClarificationCheck: Offene Klärungsanfrage für diesen Absender (< 30 Min)?
+  if (body && (await hasPendingClarification(senderPhone))) {
+    const handled = await resolveWithClarification(senderPhone, body)
+    if (handled) {
+      return new NextResponse(twimlResponse(''), {
+        headers: { 'Content-Type': 'text/xml' },
+      })
+    }
+  }
+
   const messageType = detectMessageType(mediaContentType ?? undefined)
 
   // 4. Nachricht loggen
@@ -93,12 +104,64 @@ export async function POST(request: NextRequest) {
     return new NextResponse('Internal Server Error', { status: 500 })
   }
 
-  // 5. Medien-Job einreihen (asynchron, außerhalb des Webhook-Timeouts verarbeitet)
+  // 5. Jobs einreihen (asynchron, außerhalb des Webhook-Timeouts verarbeitet)
   if (numMedia > 0 && message) {
+    // Medien-Download zuerst — der Media Worker legt danach den Assignment-Job an
     await db.from('media_jobs').insert({ incoming_message_id: message.id })
+  } else if (message) {
+    // Reine Text-Nachrichten: direkt Zuordnungs-Job anlegen
+    await db.from('assignment_jobs').insert({ incoming_message_id: message.id })
   }
 
-  // 6. Automatische WhatsApp-Antwort
+  // 6. Automatische WhatsApp-Antwort (Modus-abhängig)
+  const { data: modeRow } = await db
+    .from('system_config')
+    .select('value')
+    .eq('key', 'whatsapp_mode')
+    .maybeSingle()
+
+  const isProduction = modeRow?.value === 'production'
+
+  if (isProduction) {
+    // Produktions-Modus: Meta-genehmigte Templates via Twilio Content API
+    const { data: templateRow } = await db
+      .from('system_config')
+      .select('value')
+      .eq('key', registration ? 'whatsapp_template_sid_bestaetigung' : 'whatsapp_template_sid_unbekannt')
+      .maybeSingle()
+
+    const templateSid = templateRow?.value
+    if (templateSid) {
+      try {
+        const twilio = await import('twilio')
+        const prodSid = process.env.TWILIO_PRODUCTION_ACCOUNT_SID ?? process.env.TWILIO_ACCOUNT_SID!
+        const prodToken = process.env.TWILIO_PRODUCTION_AUTH_TOKEN ?? process.env.TWILIO_AUTH_TOKEN!
+        const prodNumber = process.env.TWILIO_PRODUCTION_PHONE_NUMBER ?? process.env.TWILIO_PHONE_NUMBER!
+        const client = twilio.default(prodSid, prodToken)
+
+        // Projektkürzel aus dem Nachrichtentext extrahieren (Assignment-Worker läuft noch nicht).
+        // Erster Hashtag aus body wird als Template-Variable verwendet.
+        const hashtags = body ? extractHashtags(body) : []
+        const variables = registration
+          ? { 1: hashtags[0] ?? 'unbekannt' }
+          : {}
+
+        await client.messages.create({
+          from: `whatsapp:${prodNumber}`,
+          to: from,
+          contentSid: templateSid,
+          contentVariables: JSON.stringify(variables),
+        })
+      } catch (err) {
+        console.error('[twilio-webhook] Template-Versand fehlgeschlagen:', err)
+      }
+      return new NextResponse(twimlResponse(''), {
+        headers: { 'Content-Type': 'text/xml' },
+      })
+    }
+  }
+
+  // Sandbox-Modus (oder Produktions-Fallback wenn kein Template konfiguriert): Freitext
   const reply = registration
     ? '✓ Nachricht empfangen. Verarbeitung läuft...'
     : 'Ihre Nummer ist nicht im System registriert. Bitte wenden Sie sich an den Administrator.'

@@ -252,12 +252,9 @@ E2E (Playwright):      2 passed (Auth-Redirect), 24 skipped (kein Auth-Cookie im
 - **Severity:** Low
 - **Beschreibung:** `twilio_media_url` wird ohne Prüfung auf `api.twilio.com` an `https.get()` übergeben. Risiko minimal (HMAC-validierte Quelle, service_role-Schreibschutz).
 
-##### BUG-5: Produktionsmodus — falsche Tabelle für Projektkürzel-Lookup (NEU)
-- **Severity:** Medium
-- **Datei:** `src/app/api/webhooks/twilio/route.ts:143–149`
-- **Beschreibung:** Im Produktionsmodus wird `assignment_jobs.project_id` abgefragt — diese Spalte existiert in `assignment_jobs` **nicht** (sie liegt auf `incoming_messages`). Die Template-Variable ist daher immer `'unbekannt'`, auch wenn ein Projekt zugeordnet wurde.
-- **Reproduzieren:** `system_config.whatsapp_mode = 'production'` setzen + Template-SID konfigurieren + bekannte Nummer sendet Nachricht → Template-Variable `{1}` ist immer `'unbekannt'`
-- **Fix:** Entweder `incoming_messages.project_id` nach dem Assignment-Job abfragen, oder Template-Variable erst nach Verarbeitung durch den Assignment-Worker befüllen.
+##### BUG-5: Produktionsmodus — falsche Tabelle für Projektkürzel-Lookup ✅ BEHOBEN
+- **Severity:** Medium → Behoben
+- **Fix:** DB-Query auf `assignment_jobs.project_id` entfernt (Spalte existiert nicht). Stattdessen wird mit `extractHashtags(body)` der erste Hashtag aus dem Nachrichtentext als Template-Variable `{1}` verwendet — ohne zusätzlichen DB-Roundtrip. Wenn kein Hashtag vorhanden, Fallback auf `'unbekannt'`.
 
 ##### BUG-6: React Fragment ohne key-Prop in WhatsAppNachrichtenCard (NEU)
 - **Severity:** Low
