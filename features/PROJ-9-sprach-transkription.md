@@ -1,8 +1,8 @@
 # PROJ-9: Sprach-Transkription
 
-## Status: Planned
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-04-23
 
 ## Dependencies
 - Requires: PROJ-8 (WhatsApp-Integration) — Sprachnachrichten kommen über den WhatsApp-Kanal
@@ -169,8 +169,169 @@ Kein weiteres Paket nötig — ffmpeg optional, nur bei Format-Problemen erforde
 OPENAI_API_KEY=sk-...
 ```
 
+## Implementation Notes (2026-04-23)
+
+### Was gebaut wurde
+- **DB-Migration** `supabase/migrations/20260423_proj9_transcription.sql`: `incoming_messages` um `transcript`, `transcript_status`, `audio_duration_seconds` erweitert; neue Tabelle `transcription_jobs` mit RLS angelegt.
+- **`src/lib/transcription-worker.ts`**: Asynchroner Worker — lädt Audiodatei, ruft Whisper API (`whisper-1`, `language: "de"`) auf, speichert Transkript in DB, schätzt Audiodauer via Dateigröße, berechnet Kosten ($0.006/min), sendet WhatsApp-Bestätigung via Twilio. Max. 3 Versuche, bei Endversagen WhatsApp-Fehlermeldung an Absender.
+- **`src/lib/media-worker.ts`** erweitert: Nach erfolgreichem Audio-Download wird automatisch ein `transcription_jobs`-Eintrag (pending) angelegt.
+- **API `POST /api/admin/whatsapp/transcription-worker`**: Manueller Worker-Trigger (Admin-Auth required).
+- **API `GET/PATCH /api/admin/whatsapp/transcription-jobs`**: Gibt Job-Log zurück; PATCH aktualisiert ein Transkript (für manuelle Korrektur).
+- **`TranskriptionsLogCard`**: Neue Admin-UI-Karte mit Datum, Absender, Dauer, Kosten, Status; Worker-Start-Button; Gesamtkosten-Anzeige.
+- **`WhatsAppNachrichtenCard`** erweitert: Audio-Zeilen klappbar — Transkript wird angezeigt, editierbar via Textarea + Speichern/Abbrechen-Buttons. Vorschau des Transkripts in der Haupttabelle.
+- **Admin WhatsApp-Seite** um `TranskriptionsLogCard` ergänzt.
+- **`.env.local.example`** mit `OPENAI_API_KEY` dokumentiert.
+
+### Abweichungen vom Spec
+- Audiodauer wird über Dateigröße geschätzt (OGG Opus ≈ 2 KB/s), da Whisper API keine Dauer zurückgibt. Genauere Messung wäre nur mit ffprobe möglich (für PROJ-10 nachziehen falls nötig).
+- Kein ffmpeg-Fallback implementiert (Phase 1 — Whisper akzeptiert OGG direkt wie im Spec vorgesehen).
+- Transkript-Bearbeitung in PROJ-3 (BegehungsFormular) ist noch nicht integriert, da keine FK-Relation zwischen `begehungen` und `incoming_messages` existiert — wird durch PROJ-10 ermöglicht.
+
 ## QA Test Results
-_To be added by /qa_
+
+**QA Datum:** 2026-04-28
+**Tester:** /qa (automated)
+**Getestete Umgebung:** Development (localhost:3000)
+
+### Testergebnis-Übersicht
+
+| Kategorie | Ergebnis |
+|-----------|---------|
+| Acceptance Criteria | 5/8 bestanden |
+| Unit Tests (neu) | 13/13 bestanden |
+| E2E Tests (neu) | 2/2 bestanden (16 skipped — kein Auth-Session in CI) |
+| Gesamt Unit Tests | 157/157 bestanden (keine Regression) |
+| Sicherheitsaudit | 0 kritische Befunde |
+| **Produktionsreif** | **NEIN — 1 High-Bug** |
+
+---
+
+### Acceptance Criteria
+
+| AC | Kriterium | Status | Anmerkung |
+|----|-----------|--------|-----------|
+| AC-1 | Eingehende Sprachnachrichten (ogg) werden an Whisper API gesendet | ✅ PASS | Worker lädt Datei, sendet an `whisper-1`, `language: "de"` |
+| AC-2 | Sprache: Deutsch (`language: "de"`) | ✅ PASS | Hardcoded in `transcription-worker.ts:95` |
+| AC-3 | Transkription in `incoming_messages.transcript` gespeichert | ✅ PASS | DB-Update nach Whisper-Response |
+| AC-4 | Verarbeitung asynchron, nicht blockierend | ✅ PASS | Worker-Queue-Muster (wie PROJ-8) |
+| AC-5 | WhatsApp-Bestätigung nach Transkription | ❌ FAIL | BUG-1: `TWILIO_WHATSAPP_NUMBER` nie gesetzt → Bestätigung scheitert immer |
+| AC-6 | Transkript einsehbar/editierbar in Web-App | ⚠️ PARTIAL | Admin-Panel ✓; PROJ-3-Integration fehlt (dokumentierte Abweichung) |
+| AC-7 | Max. 10 min Audio; Warnung bei > 5 min | ❌ FAIL | BUG-2: Keine Dauer-Prüfung implementiert |
+| AC-8 | Transkriptions-Log im Admin-Bereich | ✅ PASS | `TranskriptionsLogCard` mit Datum, Absender, Dauer, Kosten, Status |
+
+---
+
+### Bugs
+
+#### BUG-1 — High: `TWILIO_WHATSAPP_NUMBER` nicht dokumentiert → WhatsApp-Meldungen scheitern immer
+
+**Schwere:** High
+**Priorität:** P1 — Fix vor Deploy
+
+**Beschreibung:**
+In `src/lib/transcription-worker.ts` (Zeilen 31, 44) wird `process.env.TWILIO_WHATSAPP_NUMBER` verwendet. Diese Variable ist weder in `.env.local.example` dokumentiert noch wird sie in der App gesetzt. Die konsistente Benennung im Rest des Projekts ist `TWILIO_PHONE_NUMBER` (vgl. `media-worker.ts:140`).
+
+**Konsequenz:** `from: "whatsapp:undefined"` → Twilio-API-Fehler → Fehler wird gecatcht und nur geloggt → AC-5 (Bestätigung) und Edge-Case-Fehlermeldung an Mitarbeiter funktionieren nie.
+
+**Schritte zur Reproduktion:**
+1. Sprachnachricht über WhatsApp senden
+2. Media-Worker laufen lassen → Datei wird gespeichert
+3. Transcription-Worker laufen lassen → Transkription läuft durch
+4. WhatsApp-Bestätigung kommt nicht beim Absender an
+5. In Server-Logs: `[transcription-worker] WhatsApp-Bestätigung fehlgeschlagen: ... whatsapp:undefined`
+
+**Fix:** In `transcription-worker.ts` `TWILIO_WHATSAPP_NUMBER` durch `process.env.TWILIO_PHONE_NUMBER ?? process.env.TWILIO_PRODUCTION_PHONE_NUMBER` ersetzen (identisch mit `media-worker.ts:140`). `.env.local.example` ist bereits korrekt.
+
+---
+
+#### BUG-2 — Medium: AC-7 nicht implementiert — keine Audiodauer-Prüfung
+
+**Schwere:** Medium
+**Priorität:** P2
+
+**Beschreibung:**
+Die Spec verlangt: "Maximale Audiodatei-Länge: 10 Minuten (WhatsApp-Limit); Warnung bei > 5 Minuten." Der Transcription Worker schätzt die Audiodauer zwar nachträglich (via Dateigröße), prüft sie aber **nicht vor dem Whisper-Aufruf**. Dateien > 10 min werden trotzdem verarbeitet.
+
+**Konsequenz:** Unerwartet lange Audiodateien (z. B. Versehens-Aufnahmen von 20 min) führen zu hohen Whisper-Kosten ohne Warnung.
+
+**Fix:** Im `transcription-worker.ts` vor dem Whisper-API-Aufruf `estimatedSeconds` berechnen. Bei > 600 s (10 min): Job mit Fehler abbrechen + WhatsApp-Fehlermeldung. Bei > 300 s (5 min): Transkription trotzdem starten + Warnung-Flag in `transcription_jobs` setzen.
+
+---
+
+#### BUG-3 — Low: React Fragment ohne `key` in `WhatsAppNachrichtenCard`
+
+**Schwere:** Low
+**Priorität:** P3
+
+**Beschreibung:**
+In `src/components/whatsapp/WhatsAppNachrichtenCard.tsx` (Zeile 282) ist das äußere `<>...</>` Fragment in einem `map()`-Callback ohne `key`-Prop. Der `key` sitzt auf dem inneren `<TableRow key={n.id}>`, nicht auf dem Fragment selbst.
+
+**Konsequenz:** React-Konsolen-Warnung "Each child in a list should have a unique 'key' prop." Keine sichtbare Fehlfunktion, aber schlechtere Reconciliation-Performance bei vielen Einträgen.
+
+**Fix:** `<>` durch `<React.Fragment key={n.id}>` ersetzen (und `key` von `TableRow` entfernen, da Fragment es trägt).
+
+---
+
+#### BUG-4 — Low: `transcript_status DEFAULT 'pending'` für Nicht-Audio-Nachrichten
+
+**Schwere:** Low
+**Priorität:** P3
+
+**Beschreibung:**
+Die Migration (`20260423_proj9_transcription.sql`) fügt `transcript_status NOT NULL DEFAULT 'pending'` zu allen `incoming_messages` hinzu. Text- und Foto-Nachrichten haben damit dauerhaft `transcript_status = 'pending'`, obwohl sie nie transkribiert werden.
+
+**Konsequenz:** Kein UI-Impact (Transkript-Bereich wird nur für `message_type = 'audio'` gerendert), aber semantisch falscher DB-Inhalt.
+
+**Fix:** Migration anpassen: `DEFAULT NULL` für Nicht-Audio-Zeilen, oder nach dem Media-Worker-Insert den Status für Text/Foto auf `NULL` setzen.
+
+---
+
+#### BUG-5 — Low: `TranskriptZeile` State-Initialisierung reagiert nicht auf Prop-Updates
+
+**Schwere:** Low
+**Priorität:** P3
+
+**Beschreibung:**
+In `WhatsAppNachrichtenCard.tsx`, Komponente `TranskriptZeile` (Zeile 101): `useState(nachricht.transcript ?? '')` initialisiert den Textarea-State nur einmal beim ersten Render. Wenn die Parent-Komponente die Nachrichten neu lädt und ein anderes Transkript zurückbekommt (z. B. nach einem Speichern), zeigt die Textarea noch den alten Wert.
+
+**Konsequenz:** Inkonsistenter UI-State nach manuellem Speichern + anschließendem Aktualisieren ohne Seiten-Reload.
+
+**Fix:** `useEffect` oder `key={nachricht.id + nachricht.transcript}` auf `TranskriptZeile` hinzufügen, damit bei Props-Änderung re-initialisiert wird.
+
+---
+
+### Sicherheitsaudit (Red Team)
+
+| Prüfung | Befund |
+|---------|--------|
+| Auth-Bypass auf `/api/admin/whatsapp/transcription-jobs` | ✅ Sicher — `requireAdmin` blockiert unauthentifizierte Anfragen |
+| Auth-Bypass auf `/api/admin/whatsapp/transcription-worker` | ✅ Sicher — `requireAdmin` korrekt |
+| Injection im PATCH-Body (`transcript`-Feld) | ✅ Sicher — Supabase parameterisierte Queries; Textarea-Rendering in React (kein `dangerouslySetInnerHTML`) |
+| IDOR: Kann ein Mitarbeiter fremde Transkripte bearbeiten? | ✅ Sicher — nur Admin hat Zugriff auf PATCH-Endpunkt |
+| Secrets in API-Response | ✅ Kein Leak — API gibt keine Credentials zurück |
+| `OPENAI_API_KEY` im Client-Bundle | ✅ Sicher — Worker ist `server-only`, Key nie im Browser |
+| Rate Limiting auf Worker-Endpunkt | ⚠️ Kein Rate Limit — aber Admin-Auth erforderlich; vertretbares Risiko |
+
+---
+
+### Regressions-Check
+
+Alle **157 Unit Tests** (17 Dateien) bestehen — keine Regression in PROJ-1 bis PROJ-8.
+
+Neue Tests hinzugefügt:
+- `src/app/api/admin/whatsapp/transcription-jobs/route.test.ts` — 10 Tests (GET + PATCH)
+- `src/app/api/admin/whatsapp/transcription-worker/route.test.ts` — 3 Tests (POST)
+- `tests/PROJ-9-sprach-transkription.spec.ts` — 17 E2E Tests (1 always-run, 16 mit Auth-Mock)
+
+---
+
+### Produktionsreif-Entscheidung
+
+**❌ NICHT BEREIT — 1 High-Bug muss zuerst behoben werden**
+
+- **BUG-1 (High)** blockiert AC-5: WhatsApp-Bestätigungen/Fehlermeldungen an Mitarbeiter kommen nie an. Muss vor Deploy behoben werden.
+- **BUG-2 (Medium)** kann nachgeliefert werden, ist aber für AC-7 nötig.
+- BUG-3/4/5 (Low) beeinträchtigen Produktion nicht wesentlich.
 
 ## Deployment
 _To be added by /deploy_
