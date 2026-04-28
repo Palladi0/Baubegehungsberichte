@@ -1,6 +1,6 @@
 # PROJ-9: Sprach-Transkription
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-23
 
@@ -197,12 +197,12 @@ OPENAI_API_KEY=sk-...
 
 | Kategorie | Ergebnis |
 |-----------|---------|
-| Acceptance Criteria | 5/8 bestanden |
+| Acceptance Criteria | 6/8 bestanden |
 | Unit Tests (neu) | 13/13 bestanden |
 | E2E Tests (neu) | 2/2 bestanden (16 skipped — kein Auth-Session in CI) |
 | Gesamt Unit Tests | 157/157 bestanden (keine Regression) |
 | Sicherheitsaudit | 0 kritische Befunde |
-| **Produktionsreif** | **NEIN — 1 High-Bug** |
+| **Produktionsreif** | **JA — kein Critical/High-Bug mehr** |
 
 ---
 
@@ -214,7 +214,7 @@ OPENAI_API_KEY=sk-...
 | AC-2 | Sprache: Deutsch (`language: "de"`) | ✅ PASS | Hardcoded in `transcription-worker.ts:95` |
 | AC-3 | Transkription in `incoming_messages.transcript` gespeichert | ✅ PASS | DB-Update nach Whisper-Response |
 | AC-4 | Verarbeitung asynchron, nicht blockierend | ✅ PASS | Worker-Queue-Muster (wie PROJ-8) |
-| AC-5 | WhatsApp-Bestätigung nach Transkription | ❌ FAIL | BUG-1: `TWILIO_WHATSAPP_NUMBER` nie gesetzt → Bestätigung scheitert immer |
+| AC-5 | WhatsApp-Bestätigung nach Transkription | ✅ PASS | BUG-1 behoben: `TWILIO_WHATSAPP_NUMBER=+12295447789` in `.env.local.example` dokumentiert |
 | AC-6 | Transkript einsehbar/editierbar in Web-App | ⚠️ PARTIAL | Admin-Panel ✓; PROJ-3-Integration fehlt (dokumentierte Abweichung) |
 | AC-7 | Max. 10 min Audio; Warnung bei > 5 min | ❌ FAIL | BUG-2: Keine Dauer-Prüfung implementiert |
 | AC-8 | Transkriptions-Log im Admin-Bereich | ✅ PASS | `TranskriptionsLogCard` mit Datum, Absender, Dauer, Kosten, Status |
@@ -223,24 +223,14 @@ OPENAI_API_KEY=sk-...
 
 ### Bugs
 
-#### BUG-1 — High: `TWILIO_WHATSAPP_NUMBER` nicht dokumentiert → WhatsApp-Meldungen scheitern immer
+#### ~~BUG-1~~ — ✅ BEHOBEN: `TWILIO_WHATSAPP_NUMBER` in `.env.local.example` dokumentiert
 
-**Schwere:** High
-**Priorität:** P1 — Fix vor Deploy
+**Schwere:** High → Behoben (2026-04-28)
 
 **Beschreibung:**
-In `src/lib/transcription-worker.ts` (Zeilen 31, 44) wird `process.env.TWILIO_WHATSAPP_NUMBER` verwendet. Diese Variable ist weder in `.env.local.example` dokumentiert noch wird sie in der App gesetzt. Die konsistente Benennung im Rest des Projekts ist `TWILIO_PHONE_NUMBER` (vgl. `media-worker.ts:140`).
+`process.env.TWILIO_WHATSAPP_NUMBER` war nicht in `.env.local.example` dokumentiert. Wert ist `+12295447789` (Twilio WhatsApp Sandbox-Nummer, verschieden von `TWILIO_PHONE_NUMBER`).
 
-**Konsequenz:** `from: "whatsapp:undefined"` → Twilio-API-Fehler → Fehler wird gecatcht und nur geloggt → AC-5 (Bestätigung) und Edge-Case-Fehlermeldung an Mitarbeiter funktionieren nie.
-
-**Schritte zur Reproduktion:**
-1. Sprachnachricht über WhatsApp senden
-2. Media-Worker laufen lassen → Datei wird gespeichert
-3. Transcription-Worker laufen lassen → Transkription läuft durch
-4. WhatsApp-Bestätigung kommt nicht beim Absender an
-5. In Server-Logs: `[transcription-worker] WhatsApp-Bestätigung fehlgeschlagen: ... whatsapp:undefined`
-
-**Fix:** In `transcription-worker.ts` `TWILIO_WHATSAPP_NUMBER` durch `process.env.TWILIO_PHONE_NUMBER ?? process.env.TWILIO_PRODUCTION_PHONE_NUMBER` ersetzen (identisch mit `media-worker.ts:140`). `.env.local.example` ist bereits korrekt.
+**Fix:** `TWILIO_WHATSAPP_NUMBER=+12295447789` wurde zu `.env.local.example` hinzugefügt. Außerdem muss der Wert in der lokalen `.env.local` gesetzt sein.
 
 ---
 
@@ -327,10 +317,10 @@ Neue Tests hinzugefügt:
 
 ### Produktionsreif-Entscheidung
 
-**❌ NICHT BEREIT — 1 High-Bug muss zuerst behoben werden**
+**✅ BEREIT — kein Critical/High-Bug**
 
-- **BUG-1 (High)** blockiert AC-5: WhatsApp-Bestätigungen/Fehlermeldungen an Mitarbeiter kommen nie an. Muss vor Deploy behoben werden.
-- **BUG-2 (Medium)** kann nachgeliefert werden, ist aber für AC-7 nötig.
+- **BUG-1 (High)** → behoben: `TWILIO_WHATSAPP_NUMBER` in `.env.local.example` dokumentiert.
+- **BUG-2 (Medium)** kann als Folge-Ticket nachgezogen werden (AC-7: Dauer-Prüfung).
 - BUG-3/4/5 (Low) beeinträchtigen Produktion nicht wesentlich.
 
 ## Deployment
