@@ -7,6 +7,10 @@ const mockMaybeSingle = vi.fn()
 const mockInsertSelect = vi.fn()
 const mockInsert = vi.fn(() => ({ select: () => ({ single: mockInsertSelect }) }))
 const mockMediaInsert = vi.fn(() => ({}))
+const mockNoopInsert = vi.fn().mockResolvedValue({})
+const mockSystemConfigSelect = () => ({
+  select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }),
+})
 const mockFrom = vi.fn((table: string) => {
   if (table === 'incoming_messages') {
     return {
@@ -24,16 +28,27 @@ const mockFrom = vi.fn((table: string) => {
   if (table === 'media_jobs') {
     return { insert: mockMediaInsert }
   }
+  if (table === 'assignment_jobs') {
+    return { insert: mockNoopInsert }
+  }
+  if (table === 'system_config') {
+    return mockSystemConfigSelect()
+  }
   return {}
 })
 
-vi.mock('@/lib/supabase', () => ({
+vi.mock('@/lib/supabase-service', () => ({
   createServiceClient: () => ({ from: mockFrom }),
 }))
 
 vi.mock('@/lib/twilio', () => ({
   validateTwilioSignature: vi.fn(),
   twimlResponse: (msg: string) => `<Response><Message>${msg}</Message></Response>`,
+}))
+
+vi.mock('@/lib/assignment-worker', () => ({
+  hasPendingClarification: vi.fn().mockResolvedValue(false),
+  resolveWithClarification: vi.fn().mockResolvedValue(false),
 }))
 
 import { validateTwilioSignature } from '@/lib/twilio'
@@ -63,6 +78,7 @@ function setupDefaultMocks() {
   mockInsertSelect.mockResolvedValue({ data: { id: 'msg-uuid-1' }, error: null })
   mockInsert.mockReturnValue({ select: () => ({ single: mockInsertSelect }) })
   mockMediaInsert.mockResolvedValue({})
+  mockNoopInsert.mockResolvedValue({})
   mockFrom.mockImplementation((table: string) => {
     if (table === 'incoming_messages') {
       return {
@@ -79,6 +95,12 @@ function setupDefaultMocks() {
     }
     if (table === 'media_jobs') {
       return { insert: mockMediaInsert }
+    }
+    if (table === 'assignment_jobs') {
+      return { insert: mockNoopInsert }
+    }
+    if (table === 'system_config') {
+      return { select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }
     }
     return {}
   })
@@ -134,6 +156,12 @@ describe('POST /api/webhooks/twilio', () => {
       if (table === 'media_jobs') {
         return { insert: vi.fn().mockResolvedValue({}) }
       }
+      if (table === 'assignment_jobs') {
+        return { insert: vi.fn().mockResolvedValue({}) }
+      }
+      if (table === 'system_config') {
+        return { select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }
+      }
       return {}
     })
 
@@ -178,6 +206,12 @@ describe('POST /api/webhooks/twilio', () => {
       if (table === 'media_jobs') {
         return { insert: mediaInsertSpy }
       }
+      if (table === 'assignment_jobs') {
+        return { insert: vi.fn().mockResolvedValue({}) }
+      }
+      if (table === 'system_config') {
+        return { select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }
+      }
       return {}
     })
 
@@ -189,5 +223,59 @@ describe('POST /api/webhooks/twilio', () => {
     }
     await POST(makeRequest(params))
     expect(mediaInsertSpy).toHaveBeenCalledWith({ incoming_message_id: 'msg-foto-1' })
+  })
+
+  it('verarbeitet Klärungsantwort wenn offene Klärung vorhanden (ClarificationCheck)', async () => {
+    const { hasPendingClarification, resolveWithClarification } = await import('@/lib/assignment-worker')
+    vi.mocked(validateTwilioSignature).mockReturnValue(true)
+    vi.mocked(hasPendingClarification).mockResolvedValue(true)
+    vi.mocked(resolveWithClarification).mockResolvedValue(true)
+
+    const res = await POST(makeRequest({ ...validParams, Body: 'BV-23-Hamburg' }))
+    expect(res.status).toBe(200)
+    expect(resolveWithClarification).toHaveBeenCalledWith('+4917612345678', 'BV-23-Hamburg')
+  })
+
+  it('läuft normaler Fluss wenn Klärungsantwort nicht verarbeitet werden konnte', async () => {
+    const { hasPendingClarification, resolveWithClarification } = await import('@/lib/assignment-worker')
+    vi.mocked(validateTwilioSignature).mockReturnValue(true)
+    vi.mocked(hasPendingClarification).mockResolvedValue(true)
+    vi.mocked(resolveWithClarification).mockResolvedValue(false)
+
+    const res = await POST(makeRequest())
+    // normaler Fluss: Nachricht wird gespeichert
+    expect(res.status).toBe(200)
+  })
+
+  it('legt Zuordnungs-Job für Text-Nachrichten direkt im Webhook an', async () => {
+    vi.mocked(validateTwilioSignature).mockReturnValue(true)
+
+    const assignmentInsertSpy = vi.fn().mockResolvedValue({})
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'incoming_messages') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }),
+          insert: vi.fn(() => ({
+            select: () => ({ single: vi.fn().mockResolvedValue({ data: { id: 'msg-text-1' }, error: null }) }),
+          })),
+        }
+      }
+      if (table === 'phone_registrations') {
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }) }
+      }
+      if (table === 'media_jobs') {
+        return { insert: vi.fn().mockResolvedValue({}) }
+      }
+      if (table === 'assignment_jobs') {
+        return { insert: assignmentInsertSpy }
+      }
+      if (table === 'system_config') {
+        return { select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }
+      }
+      return {}
+    })
+
+    await POST(makeRequest({ ...validParams, NumMedia: '0' }))
+    expect(assignmentInsertSpy).toHaveBeenCalledWith({ incoming_message_id: 'msg-text-1' })
   })
 })

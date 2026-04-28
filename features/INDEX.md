@@ -23,7 +23,7 @@
 | PROJ-7 | Berichte-Dashboard | Approved | [PROJ-7](PROJ-7-berichte-dashboard.md) | 2026-04-21 |
 | PROJ-8 | WhatsApp-Integration (Twilio Sandbox) | Deployed | [PROJ-8](PROJ-8-whatsapp-integration.md) | 2026-04-21 |
 | PROJ-9 | Sprach-Transkription (Whisper) | Approved | [PROJ-9](PROJ-9-sprach-transkription.md) | 2026-04-21 |
-| PROJ-10 | Automatische Projektzuordnung | In Progress | [PROJ-10](PROJ-10-automatische-projektzuordnung.md) | 2026-04-21 |
+| PROJ-10 | Automatische Projektzuordnung | Approved | [PROJ-10](PROJ-10-automatische-projektzuordnung.md) | 2026-04-21 |
 | PROJ-11 | WhatsApp Business API Migration | In Progress | [PROJ-11](PROJ-11-whatsapp-business-api.md) | 2026-04-21 |
 | PROJ-12 | Erweiterte Berichtsvorlagen | In Progress | [PROJ-12](PROJ-12-erweiterte-berichtsvorlagen.md) | 2026-04-21 |
 
