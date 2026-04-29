@@ -1,8 +1,8 @@
 # PROJ-11: WhatsApp Business API Migration
 
-## Status: Architected
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-04-23
 
 ## Dependencies
 - Requires: PROJ-8 (WhatsApp-Integration Twilio Sandbox) — Sandbox muss vollständig funktionieren
@@ -166,8 +166,111 @@ Das Twilio SDK (`twilio`) ist bereits vorhanden. Template-Aufrufe und API-Prüfu
 - Automatische Template-Registrierung via API — manuell über Twilio Console (einmalig)
 - Kosten-Monitoring oder Abrechnungs-Dashboard — Out of Scope
 
+## Implementation Notes
+
+### Was gebaut wurde
+- **Supabase-Migration** `20260423_proj11_system_config.sql`: Neue `system_config`-Tabelle mit RLS; Standard-Werte für `whatsapp_mode` (sandbox), `whatsapp_active_number`, und beide Template-SIDs.
+- **API: GET/POST `/api/admin/whatsapp/config`**: Liest und schreibt Laufzeit-Konfiguration ohne Code-Deployment. Zod-validiert.
+- **API: GET `/api/admin/whatsapp/templates`**: Live-Abfrage der Meta-Template-Status via Twilio Content API v1.
+- **API: GET `/api/admin/whatsapp/migration-checks`**: Drei automatische Prüfungen (Credentials, Telefonnummer, Template-Approval) via Twilio REST API.
+- **Webhook `/api/webhooks/twilio`**: Liest `whatsapp_mode` aus DB; sendet im Produktions-Modus via Twilio Content API (Template), fällt auf Freitext zurück wenn kein Template-SID konfiguriert.
+- **Frontend `BetriebsmodusCard`**: Toggle Sandbox ↔ Produktion + Felder für aktive Nummer und Template-SIDs.
+- **Frontend `TemplateStatusCard`**: Tabellarische Anzeige aller Twilio-Templates mit APPROVED/PENDING/REJECTED-Badges.
+- **Frontend `MigrationsChecklisteCard`**: Auto-Prüfungen + manuelle Checkboxen (Meta-Verifizierung, Testlauf).
+- **Admin-Page**: Neuer Abschnitt „Business API Migration" mit allen drei Karten.
+- **`.env.local.example`**: Produktions-Credentials dokumentiert.
+
+### Abweichungen vom Tech Design
+- Keine. Alle Komponenten aus dem Architecture-Doc umgesetzt.
+
 ## QA Test Results
-_To be added by /qa_
+
+**QA-Datum:** 2026-04-29
+**Tester:** /qa (Claude)
+**Status:** ❌ NOT READY — 1 Critical Bug
+
+### Automated Tests
+- **Vitest Unit/Integration:** 225 passed (197 existing + 28 neue PROJ-11-Tests) — keine Regressionen
+- **Playwright E2E:** 2 passed, 38 skipped (server-seitige Auth-Weiterleitung ohne echte Supabase-Session — konsistent mit PROJ-8/9/10)
+- **Neue Unit-Test-Files:**
+  - `src/app/api/admin/whatsapp/config/route.test.ts` — 10 Tests (GET + POST)
+  - `src/app/api/admin/whatsapp/templates/route.test.ts` — 6 Tests
+  - `src/app/api/admin/whatsapp/migration-checks/route.test.ts` — 7 Tests
+  - `src/app/api/webhooks/twilio/route.test.ts` — 3 neue Tests für Produktions-Modus
+- **E2E-Test-File:** `tests/PROJ-11-whatsapp-business-api.spec.ts` — 20 Tests (AC-AUTH, AC-2 bis AC-7)
+
+### Acceptance Criteria
+
+| # | Kriterium | Status | Notiz |
+|---|-----------|--------|-------|
+| AC-1 | WhatsApp Business Account bei Meta verifiziert | N/A | Erfordert echten Meta-Account; Admin-Checkliste vorhanden |
+| AC-2 | Offizielle Büronummer als WA Business Number registriert | N/A | Migrations-Checkliste prüft automatisch via Twilio API |
+| AC-3 | Webhook-URL unverändert (`/api/webhooks/twilio`) | ✅ PASS | Route unverändert; WebhookUrlCard weiterhin sichtbar |
+| AC-4 | Alle Mitarbeiter ohne Sandbox-Registrierung erreichbar | N/A | Produktions-Modus-Logik korrekt implementiert |
+| AC-5 | Bestehende Sandbox-Daten bleiben erhalten | ✅ PASS | SQL-Migration nur additive (`system_config`-Tabelle); keine Datenmigration |
+| AC-6 | Nachrichten-Templates bei Meta registriert | N/A | TemplateStatusCard und Template-SID-Felder implementiert |
+| AC-7 | Modus-Umschaltung ohne Code-Deployment (DB-gespeichert) | ✅ PASS | Toggle schreibt in `system_config` via POST /api/admin/whatsapp/config |
+
+### Bugs Found
+
+#### 🔴 CRITICAL
+
+**BUG-1: Echte Twilio-Credentials in `.env.local.example`**
+- **Beschreibung:** Die aktuell nicht committete Version von `.env.local.example` enthält echte Produktions-Credentials (`TWILIO_PRODUCTION_ACCOUNT_SID=ACdabf8c...`, `TWILIO_PRODUCTION_AUTH_TOKEN=222d7e...`) statt Platzhalter. Im Git-Stand sind Platzhalter (`ACxxxxxx`). Die Working-Tree-Änderung muss zurückgesetzt werden.
+- **Auswirkung:** Bei versehentlichem `git add .env.local.example` werden echte Credentials ins Repository committed und öffentlich zugänglich.
+- **Reproduktion:** `git diff .env.local.example` zeigt echte Werte statt `ACxxxxxxxx`.
+- **Priorität:** Sofort beheben vor jedem `git add`
+
+#### 🟡 MEDIUM
+
+**BUG-2: Keine E.164-Format-Validierung für `whatsapp_active_number`**
+- **Beschreibung:** POST `/api/admin/whatsapp/config` akzeptiert beliebigen String für `whatsapp_active_number`. Kein Regex-Check auf E.164-Format (`\+[1-9]\d{7,14}`).
+- **Auswirkung:** Ungültige Nummer wird in DB gespeichert; Twilio-Nachrichten im Produktions-Modus schlagen lautlos fehl.
+- **Fix:** Zod-Schema um `.regex(/^\+[1-9]\d{7,14}$/)` ergänzen.
+
+**BUG-3: Keine Format-Validierung für Template-SIDs**
+- **Beschreibung:** Template-SID-Felder akzeptieren beliebige Strings. Twilio Content SIDs haben Format `HX[a-z0-9]{32}` (34 Zeichen). Ungültige SIDs führen zu stillen Template-Fehlern im Produktions-Modus.
+- **Fix:** Zod-Schema um `.regex(/^HX[a-z0-9]{32}$/).optional()` ergänzen.
+
+**BUG-4: Fehlende `.limit()` auf `system_config`-Query (Backend-Regel-Verletzung)**
+- **Beschreibung:** In `GET /api/admin/whatsapp/config` fehlt `.limit()` auf der `system_config`-Abfrage. Verletzt die Backend-Konvention "Use `.limit()` on all list queries".
+- **Fix:** `.in('key', CONFIG_KEYS).limit(10)` verwenden.
+
+#### 🔵 LOW
+
+**BUG-5: Kein Bestätigungsdialog beim Wechsel in Produktions-Modus**
+- **Beschreibung:** Der Modus-Toggle wechselt sofort von Sandbox → Produktion ohne Rückfrage. Ein Missklick aktiviert den Produktions-Modus für alle eingehenden Nachrichten.
+- **Fix:** AlertDialog-Komponente vor dem POST-Request anzeigen ("Wirklich in Produktions-Modus wechseln?").
+
+**BUG-6: Manuelle Checklisten-Checkboxen werden bei Seitenreload zurückgesetzt**
+- **Beschreibung:** "Meta Business Account verifiziert" und "Testlauf erfolgreich" sind rein client-seitig. Nach Seitenreload sind beide zurückgesetzt und das "Bereit für Produktion"-Badge verschwindet, obwohl die Schritte erledigt wurden.
+- **Fix:** Checkbox-Zustand in `system_config` persistieren (zwei neue Keys) oder `localStorage` verwenden.
+
+**BUG-7: `vi.mock('twilio')` nested in Test-Funktion — Hoisting-Warnung**
+- **Beschreibung:** In `src/app/api/webhooks/twilio/route.test.ts` wird `vi.mock('twilio')` innerhalb einer `it()`-Funktion aufgerufen. Vitest warnt, dass dies in zukünftigen Versionen ein Fehler sein wird.
+- **Fix:** Mock an die oberste Ebene des Test-Files verschieben (vor den `describe`-Block).
+
+### Security Audit
+
+| Bereich | Befund | Status |
+|---------|--------|--------|
+| Authentifizierung | Alle 3 neuen Routen verwenden `requireAdmin()` | ✅ |
+| Autorisierung | Nur Admins können Konfiguration lesen/schreiben | ✅ |
+| Hardcoded Secrets im Code | Keine — nur `process.env.*`-Zugriffe | ✅ |
+| Secrets in `.env.local.example` | **Echte Credentials in Working Tree** | ❌ BUG-1 |
+| RLS auf `system_config` | Admin-Read + Service-Role-Full — korrekt | ✅ |
+| Input-Validierung | Zod auf POST /config — aber ohne Phone/SID-Format | ⚠️ BUG-2/3 |
+| SQL-Injection | Supabase parametrierte Queries | ✅ |
+| SSRF | Twilio-URLs sind hardcodiert, nicht user-input | ✅ |
+| Twilio Webhook HMAC | Unverändert — gleiche Signatur-Validierung | ✅ |
+
+### Cross-Browser / Responsive
+Nicht manuell testbar ohne echte Supabase-Session. E2E-Tests decken Auth-Redirect für Chromium und Mobile Safari ab.
+
+### Regression Check
+- Alle 197 existierenden Tests weiterhin grün ✅
+- PROJ-8 Webhook-Route: Sandbox-Modus-Verhalten unverändert ✅
+- PROJ-9/10 Admin-UI-Komponenten: Weiterhin auf der Seite vorhanden ✅
 
 ## Deployment
 _To be added by /deploy_

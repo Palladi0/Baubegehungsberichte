@@ -278,4 +278,106 @@ describe('POST /api/webhooks/twilio', () => {
     await POST(makeRequest({ ...validParams, NumMedia: '0' }))
     expect(assignmentInsertSpy).toHaveBeenCalledWith({ incoming_message_id: 'msg-text-1' })
   })
+
+  // ── PROJ-11: Produktions-Modus ─────────────────────────────────────────────
+
+  it('sendet Freitext wenn Modus = sandbox (Standard)', async () => {
+    vi.mocked(validateTwilioSignature).mockReturnValue(true)
+    // system_config gibt sandbox-Modus zurück (kein value → null → Sandbox)
+    const res = await POST(makeRequest())
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text).toContain('Ihre Nummer ist nicht im System registriert')
+  })
+
+  it('fällt auf Freitext zurück wenn Modus = production aber kein Template-SID konfiguriert', async () => {
+    vi.mocked(validateTwilioSignature).mockReturnValue(true)
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'incoming_messages') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }),
+          insert: vi.fn(() => ({
+            select: () => ({ single: vi.fn().mockResolvedValue({ data: { id: 'msg-prod-1' }, error: null }) }),
+          })),
+        }
+      }
+      if (table === 'phone_registrations') {
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }) }) }
+      }
+      if (table === 'media_jobs') { return { insert: vi.fn().mockResolvedValue({}) } }
+      if (table === 'assignment_jobs') { return { insert: vi.fn().mockResolvedValue({}) } }
+      if (table === 'system_config') {
+        return {
+          select: () => ({
+            eq: (col: string, val: string) => ({
+              maybeSingle: vi.fn().mockResolvedValue({
+                // whatsapp_mode = production, aber kein Template-SID
+                data: val === 'whatsapp_mode' ? { value: 'production' } : null,
+              }),
+            }),
+          }),
+        }
+      }
+      return {}
+    })
+
+    const res = await POST(makeRequest())
+    expect(res.status).toBe(200)
+    // Kein templateSid → Freitext-Fallback
+    const text = await res.text()
+    expect(text).toContain('nicht im System registriert')
+  })
+
+  it('sendet Template-Nachricht im Produktions-Modus mit konfiguriertem SID', async () => {
+    vi.mocked(validateTwilioSignature).mockReturnValue(true)
+
+    const mockCreate = vi.fn().mockResolvedValue({ sid: 'SM_template_1' })
+    vi.mock('twilio', () => ({
+      default: vi.fn(() => ({
+        messages: { create: mockCreate },
+      })),
+    }))
+
+    process.env.TWILIO_PRODUCTION_ACCOUNT_SID = 'ACprod'
+    process.env.TWILIO_PRODUCTION_AUTH_TOKEN = 'prodtoken'
+    process.env.TWILIO_PRODUCTION_PHONE_NUMBER = '+4989123456'
+
+    mockFrom.mockImplementation((table: string) => {
+      if (table === 'incoming_messages') {
+        return {
+          select: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: null }) }) }),
+          insert: vi.fn(() => ({
+            select: () => ({ single: vi.fn().mockResolvedValue({ data: { id: 'msg-tpl-1' }, error: null }) }),
+          })),
+        }
+      }
+      if (table === 'phone_registrations') {
+        // Bekannter Absender
+        return { select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: vi.fn().mockResolvedValue({ data: { user_id: 'user-1' } }) }) }) }) }
+      }
+      if (table === 'media_jobs') { return { insert: vi.fn().mockResolvedValue({}) } }
+      if (table === 'assignment_jobs') { return { insert: vi.fn().mockResolvedValue({}) } }
+      if (table === 'system_config') {
+        return {
+          select: () => ({
+            eq: (_col: string, val: string) => ({
+              maybeSingle: vi.fn().mockResolvedValue({
+                data: val === 'whatsapp_mode'
+                  ? { value: 'production' }
+                  : { value: 'HXbestaetigung' },
+              }),
+            }),
+          }),
+        }
+      }
+      return {}
+    })
+
+    const res = await POST(makeRequest({ ...validParams, Body: '#BV-23-Hamburg Begehung fertig' }))
+    expect(res.status).toBe(200)
+    // Im production-Modus mit Template → leere TwiML (Template wird via API gesendet)
+    const text = await res.text()
+    expect(text).toBe('<Response><Message></Message></Response>')
+  })
 })
