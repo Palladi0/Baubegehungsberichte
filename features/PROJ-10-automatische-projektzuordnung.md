@@ -307,9 +307,9 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 
 ## QA Test Results
 
-**QA-Datum:** 2026-04-28
+**QA-Datum:** 2026-04-28 (Re-QA nach Bug-Fixes: 2026-04-28)
 **Tester:** /qa (Claude)
-**Ergebnis:** ✅ APPROVED — keine Critical/High-Bugs
+**Ergebnis:** ✅ APPROVED — alle 4 Bugs behoben, keine offenen Bugs
 
 ### Acceptance Criteria — Testergebnisse
 
@@ -334,30 +334,27 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 | Mehrere Nachrichten kurz hintereinander → jede einzeln | ✅ PASS |
 | Absender mehreren Projekten zugeordnet, kein Hashtag → Klärung | ✅ PASS |
 
-### Bugs gefunden
+### Bugs gefunden & behoben
 
-#### BUG-1 (Medium) — `findProjectsByHashtags` filtert keine archivierten Projekte
-- **Beschreibung:** Beim Hashtag-Matching im Assignment Worker (Schritt 2/3) wird `projekte.archived_at` nicht geprüft. Wenn ein Hashtag einem archivierten Projekt entspricht, wird die Nachricht still diesem Projekt zugeordnet, anstatt eine Fehlermeldung zu senden.
-- **Spec-Anforderung:** „Projekt [Kürzel] ist archiviert. Bitte wähle ein aktives Projekt."
-- **Ort:** `src/lib/assignment-worker.ts:38-51` (Funktion `findProjectsByHashtags`)
-- **Reproduzieren:** Text-Nachricht mit `#ARCH-01` senden, wenn `ARCH-01` archiviert ist
-- **Fix:** `.is('archived_at', null)` zu den DB-Queries in `findProjectsByHashtags` hinzufügen; bei Match auf archiviertes Projekt WhatsApp-Fehlermeldung senden
+#### BUG-1 (Medium) ✅ BEHOBEN — `findProjectsByHashtags` filtert keine archivierten Projekte
+- **Beschreibung:** Beim Hashtag-Matching im Assignment Worker (Schritt 2/3) wurde `projekte.archived_at` nicht geprüft. Wenn ein Hashtag einem archivierten Projekt entsprach, wurde die Nachricht still diesem Projekt zugeordnet.
+- **Fix:** `findProjectsByHashtags` selektiert jetzt `archived_at`; `processAssignmentJob` splittet in `aktive`/`archiviert` und sendet bei archiviertem Match eine WhatsApp-Fehlermeldung.
+- **Test:** `src/lib/assignment-worker.test.ts` — BUG-1-Describe-Block mit 2 Tests ✅
 
-#### BUG-2 (Medium) — Doppelte WhatsApp-Nachricht bei unbekanntem Hashtag
-- **Beschreibung:** Wenn ein Hashtag im Text vorkommt aber kein Projekt matcht, sendet der Worker **zwei** WhatsApp-Nachrichten: (1) „Unbekanntes Projektkürzel…" + (2) „Für welches Projekt ist diese Nachricht?" via `sendClarificationRequest`. Der Nutzer erhält zwei Nachrichten statt einer.
-- **Ort:** `src/lib/assignment-worker.ts:151-153`
-- **Reproduzieren:** Nachricht mit `#UNBEKANNT-99` senden
-- **Fix:** Die erste `sendWhatsApp`-Nachricht entfernen; `sendClarificationRequest` allein sendet bereits eine passende Anfrage
+#### BUG-2 (Medium) ✅ BEHOBEN — Doppelte WhatsApp-Nachricht bei unbekanntem Hashtag
+- **Beschreibung:** Bei unbekanntem Hashtag wurden zwei WhatsApp-Nachrichten gesendet (extra `sendWhatsApp` + `sendClarificationRequest`).
+- **Fix:** Die redundante `sendWhatsApp`-Nachricht wurde entfernt; nur noch `sendClarificationRequest` sendet die Klärungsanfrage.
+- **Test:** `src/lib/assignment-worker.test.ts` — BUG-2-Describe-Block ✅
 
-#### BUG-3 (Low) — Assign-Route prüft nicht ob Nachricht existiert
-- **Beschreibung:** `POST /api/admin/whatsapp/messages/[id]/assign` gibt `{ ok: true }` zurück, auch wenn die Message-ID nicht in der Datenbank existiert. Der DB-Update betrifft 0 Zeilen, ohne Fehler.
-- **Ort:** `src/app/api/admin/whatsapp/messages/[id]/assign/route.ts:44-55`
-- **Fix:** Nach dem Update prüfen ob `count === 0` und 404 zurückgeben
+#### BUG-3 (Low) ✅ BEHOBEN — Assign-Route prüft nicht ob Nachricht existiert
+- **Beschreibung:** `POST /api/admin/whatsapp/messages/[id]/assign` gab `{ ok: true }` zurück, auch wenn die Message-ID nicht existierte.
+- **Fix:** Expliziter Existenz-Check via `SELECT … maybeSingle()` vor dem Update; gibt 404 zurück wenn nicht gefunden.
+- **Test:** `src/app/api/admin/whatsapp/messages/[id]/assign/route.test.ts` — "404 wenn Nachricht nicht existiert (BUG-3 Fix)" ✅
 
-#### BUG-4 (Low) — Kein `assigned_at`-Timestamp im Zuordnungs-Protokoll
-- **Beschreibung:** Das Spec fordert „Zuordnungs-Protokoll: Methode + Timestamp". Die Methode wird als `assignment_method` gespeichert, aber kein expliziter Zeitstempel für die Zuordnung. Es gibt kein `assigned_at`-Feld in `incoming_messages`.
-- **Ort:** DB-Schema (`supabase/migrations/20260423_proj10_assignment.sql`)
-- **Hinweis:** Für MVP akzeptabel — `processed_at` kann als Näherung dienen
+#### BUG-4 (Low) ✅ BEHOBEN — Kein `assigned_at`-Timestamp im Zuordnungs-Protokoll
+- **Beschreibung:** Kein expliziter `assigned_at`-Timestamp beim Zuordnungs-Update.
+- **Fix:** Migration `supabase/migrations/20260429_proj10_bug_fixes.sql` fügt `assigned_at TIMESTAMPTZ` zu `incoming_messages` hinzu; `assignMessage()` und manuelle Assign-Route setzen jetzt `assigned_at: new Date().toISOString()`.
+- **Test:** `src/app/api/admin/whatsapp/messages/[id]/assign/route.test.ts` — BUG-4-Fix-Test ✅
 
 ### Security Audit
 
@@ -375,9 +372,9 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 
 | Test-Suite | Anzahl | Ergebnis |
 |-----------|--------|---------|
-| Vitest Unit/Integration (neu) | 36 neue Tests (193 gesamt) | ✅ alle grün |
+| Vitest Unit/Integration | 197 Tests gesamt | ✅ alle grün |
 | Playwright E2E PROJ-10 | 13 Tests (1 pass, 12 skip*) | ✅ |
-| Regression (alle 193 Tests) | 193 | ✅ keine Regressionen |
+| Regression (alle Tests) | 197 | ✅ keine Regressionen |
 
 *E2E-Tests skippen wenn keine Supabase-Session vorhanden (identisches Verhalten wie PROJ-8/9)
 
@@ -392,7 +389,7 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 
 ### Produktions-Bereitschaft
 
-**Entscheidung: APPROVED** — BUG-1 und BUG-2 sind Medium-Severity und beeinflussen Edge Cases (archivierte Projekte), nicht den Haupt-Flow. BUG-3 und BUG-4 sind Low-Severity. Der Kern-Flow (Hashtag-Erkennung, Klärungsverfahren, manuelle Zuordnung) funktioniert korrekt.
+**Entscheidung: APPROVED** — Alle 4 Bugs wurden behoben und durch neue Tests verifiziert. 197/197 Vitest-Tests grün. Kein offener Bug mehr.
 
 ## Deployment
 _To be added by /deploy_

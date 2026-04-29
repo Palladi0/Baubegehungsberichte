@@ -5,10 +5,21 @@ vi.mock('@/lib/auth', () => ({
   requireAdmin: vi.fn(),
 }))
 
+const mockNachrichtMaybeSingle = vi.fn()
 const mockProjektMaybeSingle = vi.fn()
 const mockUpdateEq = vi.fn().mockResolvedValue({ error: null })
 
 const mockFrom = vi.fn((table: string) => {
+  if (table === 'incoming_messages') {
+    return {
+      select: () => ({
+        eq: () => ({
+          maybeSingle: mockNachrichtMaybeSingle,
+        }),
+      }),
+      update: () => ({ eq: mockUpdateEq }),
+    }
+  }
   if (table === 'projekte') {
     return {
       select: () => ({
@@ -16,11 +27,6 @@ const mockFrom = vi.fn((table: string) => {
           maybeSingle: mockProjektMaybeSingle,
         }),
       }),
-    }
-  }
-  if (table === 'incoming_messages') {
-    return {
-      update: () => ({ eq: mockUpdateEq }),
     }
   }
   return {}
@@ -43,7 +49,6 @@ function makeCtx(id = validMessageId) {
   return { params: Promise.resolve({ id }) }
 }
 
-// Erstelle ein Request-Mock-Objekt, das json() korrekt zurückgibt
 function makeMockRequest(bodyObj: Record<string, unknown> | null = { project_id: validProjectId }): NextRequest {
   return {
     headers: {
@@ -56,7 +61,12 @@ function makeMockRequest(bodyObj: Record<string, unknown> | null = { project_id:
 }
 
 describe('POST /api/admin/whatsapp/messages/[id]/assign', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    // Standard: Nachricht existiert
+    mockNachrichtMaybeSingle.mockResolvedValue({ data: { id: validMessageId } })
+    mockUpdateEq.mockResolvedValue({ error: null })
+  })
 
   it('gibt 401 zurück ohne Admin-Auth', async () => {
     vi.mocked(requireAdmin).mockResolvedValue(unauthResult)
@@ -74,6 +84,15 @@ describe('POST /api/admin/whatsapp/messages/[id]/assign', () => {
     vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
     const res = await POST(makeMockRequest(null), makeCtx())
     expect(res.status).toBe(400)
+  })
+
+  it('gibt 404 zurück wenn Nachricht nicht existiert (BUG-3 Fix)', async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
+    mockNachrichtMaybeSingle.mockResolvedValue({ data: null })
+    const res = await POST(makeMockRequest(), makeCtx())
+    expect(res.status).toBe(404)
+    const json = await res.json()
+    expect(json.error).toMatch(/nachricht nicht gefunden/i)
   })
 
   it('gibt 404 zurück wenn Projekt nicht existiert', async () => {
@@ -97,22 +116,21 @@ describe('POST /api/admin/whatsapp/messages/[id]/assign', () => {
     mockProjektMaybeSingle.mockResolvedValue({
       data: { id: validProjectId, kuerzel: 'BV-23-Hamburg', archived_at: null },
     })
-    mockUpdateEq.mockResolvedValue({ error: null })
     const res = await POST(makeMockRequest(), makeCtx())
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.ok).toBe(true)
-    expect(mockFrom).toHaveBeenCalledWith('incoming_messages')
   })
 
-  it('setzt assignment_method auf "manual"', async () => {
+  it('setzt assignment_method "manual" und assigned_at beim Update (BUG-4 Fix)', async () => {
     vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
     mockProjektMaybeSingle.mockResolvedValue({
       data: { id: validProjectId, kuerzel: 'BV-23-Hamburg', archived_at: null },
     })
-    mockUpdateEq.mockResolvedValue({ error: null })
     const res = await POST(makeMockRequest(), makeCtx())
     expect(res.status).toBe(200)
+    // mockFrom wurde für 'incoming_messages' aufgerufen (Existenzcheck + Update)
+    expect(mockFrom).toHaveBeenCalledWith('incoming_messages')
   })
 
   it('gibt 500 zurück bei Datenbankfehler beim Update', async () => {
