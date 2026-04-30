@@ -1,8 +1,8 @@
 # PROJ-2: Projektverwaltung
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-24
+**Last Updated:** 2026-04-30
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung) — nur eingeloggte Admins können Projekte anlegen/verwalten
@@ -120,6 +120,37 @@ Next.js App
 - Alle Texte Deutsch, shadcn/ui-Komponenten durchgängig, Lade-/Fehler-/Leer-Zustände in allen Client-Komponenten.
 
 ## QA Test Results
+
+### Re-Test 2026-04-30
+
+**Getestet am:** 2026-04-30
+**QA-Methode:** Code-Review aller Implementierungsdateien + Unit-Tests (`npm test`: 295/295) + E2E-Tests Playwright (42/42 neu, beide Browser: Chromium + Mobile Safari)
+**Tester:** QA Engineer
+
+#### Bug-Status-Update
+
+| Bug | Severity | Status (2026-04-30) | Notiz |
+|-----|----------|---------------------|-------|
+| BUG-001 | Medium | **OFFEN** | `src/app/admin/projekte/[id]/page.tsx` zeigt weiterhin keine Begehungs-Anzahl. API liefert auch kein `begehungen_count`. |
+| BUG-002 | High | **BEHOBEN** ✅ | `src/app/api/begehungen/route.ts` Z. 118–133: `archived_at`-Check bestätigt. Gibt 422 zurück. |
+| BUG-003 | Low | **OFFEN** | `src/middleware.ts` Z. 118: Redirect zu `/` bestätigt (statt `/projekte`). |
+| BUG-004 | Low | **OFFEN** | `isRateLimitedPath()` prüft nur `/api/auth/` und `/login POST` — Projekt-Mutationen ungeschützt. |
+| BUG-005 | Low | **OFFEN** | `PUT /api/admin/projekte/[id]` enthält keine `archived_at`-Prüfung (Z. 82–144 bestätigt). |
+| BUG-006 | Low | **OFFEN** | `.limit(500)` in beiden List-Endpunkten, keine Pagination. |
+| BUG-007 | Low | **OFFEN** | `mitarbeiter_anzahl` in API vorhanden; in `ProjektlisteCard.tsx` Tabelle nicht angezeigt. |
+
+#### Neue E2E-Tests
+
+`tests/PROJ-2-projektverwaltung.spec.ts` — 21 Tests (42 Ausführungen über Chromium + Mobile Safari):
+- AC#1–9: Auth-Schutz und Redirect-Verhalten aller Endpunkte
+- Sicherheits-Tests: IDOR, Mass-Assignment, XSS im Kürzel
+- Regressions-Test BUG-002: `POST /api/begehungen` auf archiviertes Projekt
+
+**Produktionsreife-Entscheidung: READY** — Keine neuen Critical/High-Bugs. Status bleibt **Approved**.
+
+---
+
+### Erst-Test 2026-04-24
 
 **Getestet am:** 2026-04-24
 **QA-Methode:** Statische Code-Analyse + Unit/Integrations-Tests (`npm test`: 27/27 bestanden) + manuelle API-Trace-Verifikation
