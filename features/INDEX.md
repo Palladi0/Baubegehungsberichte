@@ -25,7 +25,7 @@
 | PROJ-9 | Sprach-Transkription (Whisper) | Approved | [PROJ-9](PROJ-9-sprach-transkription.md) | 2026-04-21 |
 | PROJ-10 | Automatische Projektzuordnung | Approved | [PROJ-10](PROJ-10-automatische-projektzuordnung.md) | 2026-04-21 |
 | PROJ-11 | WhatsApp Business API Migration | In Review | [PROJ-11](PROJ-11-whatsapp-business-api.md) | 2026-04-21 |
-| PROJ-12 | Erweiterte Berichtsvorlagen | In Progress | [PROJ-12](PROJ-12-erweiterte-berichtsvorlagen.md) | 2026-04-21 |
+| PROJ-12 | Erweiterte Berichtsvorlagen | In Review | [PROJ-12](PROJ-12-erweiterte-berichtsvorlagen.md) | 2026-04-21 |
 
 <!-- Add features above this line -->
 

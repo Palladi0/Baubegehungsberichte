@@ -1,8 +1,8 @@
 # PROJ-12: Erweiterte Berichtsvorlagen
 
-## Status: Architected
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-21
+**Last Updated:** 2026-04-30
 
 ## Dependencies
 - Requires: PROJ-5 (Berichtsgenerierung) — Basis-Bericht muss existieren
@@ -203,8 +203,131 @@ vorlage_snapshot wird im JSONB-Snapshot eingefroren
 PDF steht zum Download bereit
 ```
 
+## Implementation Notes
+
+### Was gebaut wurde
+- **Supabase-Migration** `20260424_proj12_berichts_vorlagen.sql`: Neue `berichts_vorlagen`-Tabelle mit RLS; `vorlage_id`-FK in `berichte`; 2 Default-Templates geseedet ("Professionell", "Modern").
+- **Types** (`src/types/berichte.ts`): `VorlageConfig`, `VorlageSnapshot` hinzugefügt; `BerichtsSnapshot` um optionales `vorlage_snapshot` erweitert; `Bericht` um `vorlage_id` erweitert.
+- **Renderer** (`src/lib/bericht-renderer.ts`): `renderBerichtHTML` akzeptiert optionalen `VorlageSnapshot`-Parameter; injiziert CSS Custom Properties (`--farbe-primaer`, `--farbe-sekundaer`, `--schrift-basis`) in `<head>`; rendert Kopfzeile, Fußzeile und Logo/Firmenname aus Template.
+- **API `GET/POST /api/templates`**: Alle Templates laden; neues Template anlegen (Admin). Zod-validiert.
+- **API `GET/PUT/DELETE /api/templates/[id]`**: Template laden, aktualisieren, löschen. Lösch-Schutz: blockiert wenn Berichte referenzieren. Standard-Template kann nicht gelöscht werden.
+- **API `POST/GET/DELETE /api/templates/[id]/logo`**: Logo hochladen (PNG/SVG/JPEG/WEBP, max 2 MB), ausliefern, entfernen.
+- **API `PUT /api/templates/[id]/default`**: Template als Standard markieren.
+- **API `PATCH /api/reports/[id]`**: `vorlage_id` ohne neue Version setzen.
+- **Preview** (`/api/reports/[id]/preview`): Liest `vorlage_id` aus `berichte`, lädt Template, injiziert `logo_url` als HTTP-URL für den Browser.
+- **Export** (`/api/reports/[id]/export`): Lädt Template, bettet Logo als Base64-Data-URI ein (für Puppeteer), friert `vorlage_snapshot` in JSONB ein.
+- **Admin-Seite** `/admin/vorlagen`: Liste aller Templates mit Farbstreifen-Karte; Standardmarkierung; Löschen mit Bestätigungsdialog.
+- **Admin-Seiten** `/admin/vorlagen/neu` und `/admin/vorlagen/[id]/bearbeiten`: Zweispaltiger Editor — Links: Formular (Name, Logo, Farben, Texte, Schriftgröße); Rechts: Live-Vorschau im iframe mit WCAG-Kontrast-Warnung bei schlechter Lesbarkeit.
+- **Bericht-Editor**: `VorlageAuswahl`-Komponente im Header; Template-Wechsel speichert `vorlage_id` per PATCH ohne neue Version.
+- **`.env.local.example`**: `TEMPLATE_UPLOAD_PATH` dokumentiert.
+
+### Abweichungen vom Tech Design
+- Logo in Puppeteer wird als Base64-Data-URI eingebettet statt als `file://`-URL, um Dateisystem-Pfad-Probleme zu vermeiden.
+- Die Live-Vorschau im Editor rendert client-seitig (kein separater API-Aufruf) für sofortiges Feedback.
+- `PATCH /api/reports/[id]` neu für `vorlage_id` statt Erweiterung des PUT (der eine neue Version anlegt).
+
 ## QA Test Results
-_To be added by /qa_
+
+**QA Datum:** 2026-04-30
+**Status:** NOT READY — 1 High + 1 Medium Security Bug
+
+### Automated Tests
+- **Vitest (Unit):** 256 Tests — alle grün (31 neue Tests für PROJ-12 hinzugefügt)
+  - `src/app/api/templates/route.test.ts` — 11 Tests (GET list, POST create)
+  - `src/app/api/templates/[id]/route.test.ts` — 12 Tests (GET, PUT, DELETE inkl. Lösch-Schutz)
+  - `src/app/api/templates/[id]/default/route.test.ts` — 4 Tests (PUT set-default)
+  - `src/lib/bericht-renderer.test.ts` — 8 neue Tests (vorlage_snapshot Fallback, XSS in Vorlage-Feldern)
+- **Playwright (E2E):** 24 Tests in `tests/PROJ-12-erweiterte-berichtsvorlagen.spec.ts`
+  - 3 bestanden (unauthentifizierte Weiterleitungen)
+  - 21 übersprungen (require Supabase-Session — erwartetes Verhalten)
+  - 0 fehlgeschlagen
+- **Regression:** Alle 32 bestehenden E2E-Tests — keine Regressionen
+
+### Acceptance Criteria
+
+| # | Kriterium | Status | Anmerkung |
+|---|-----------|--------|-----------|
+| AC-1 | Admin-Bereich: Template-Verwaltung (Anlegen, Bearbeiten, Löschen, Standard) | ✅ PASS | Alle CRUD-Operationen implementiert; Lösch-Schutz und Standard-Schutz funktionieren |
+| AC-2 | Konfigurierbare Elemente: Logo, Firmenname, Primärfarbe, Sekundärfarbe, Kopfzeile, Fußzeile, Schriftgröße | ✅ PASS | Alle Felder vorhanden; Logo akzeptiert PNG/SVG/JPEG/WEBP max 2 MB |
+| AC-3 | Vorschau des Templates in Echtzeit (HTML-Rendering im iframe) | ✅ PASS | Live-Vorschau via iframe, client-seitig aktualisiert bei jeder Formularänderung |
+| AC-4 | Standard-Template für alle neuen Berichte | ✅ PASS | `ist_standard`-Flag in DB; Export-Route verwendet Standard als Fallback |
+| AC-5 | Template-Wechsel im Bericht-Editor ohne Inhaltsverlust | ⚠️ PARTIAL | PATCH-Endpunkt korrekt implementiert; **aber**: Fehler beim PATCH werden nicht dem Nutzer angezeigt (BUG-HIGH-1) |
+| AC-6 | Mindestens 2 Default-Templates: „Professionell" und „Modern" | ✅ PASS | Beide Templates per Migration geseedet |
+| AC-7 | Template-Änderungen wirken auf zukünftige Exports; bestehende PDFs unverändert | ✅ PASS | `vorlage_snapshot` wird beim Export in JSONB eingefroren |
+
+### Edge Cases
+
+| Edge Case | Status | Anmerkung |
+|-----------|--------|-----------|
+| Template mit referenzierten Berichten kann nicht gelöscht werden | ✅ PASS | COUNT-Abfrage auf `berichte.vorlage_id`; 409 mit Anzahl |
+| Standard-Template kann nicht gelöscht werden | ✅ PASS | Separater `ist_standard`-Check; 409 mit Hinweis |
+| Logo zu groß für Kopfzeile → automatische Skalierung | ✅ PASS | CSS `max-height: 150px` im Print-Stylesheet; Seitenverhältnis erhalten |
+| HEX-Farbe mit schlechtem Kontrast → Warnung (kein Block) | ✅ PASS | WCAG-Luminanz-Berechnung client-seitig; Amber-Warnung bei Kontrast < 4.5:1 |
+
+### Security Audit
+
+| Befund | Schwere | Details |
+|--------|---------|---------|
+| BUG-SEC-1: `GET /api/templates/[id]/logo` ohne Auth | **Medium** | Logo-Datei ist ohne Authentifizierung abrufbar wenn UUID bekannt. Firmenlogos sind sensible Corporate Assets. Betrifft: [src/app/api/templates/[id]/logo/route.ts](src/app/api/templates/%5Bid%5D/logo/route.ts) Zeile 26 |
+| WCAG-Kontrast-Check nur für Primärfarbe | Low | Sekundärfarbe nicht geprüft — entspricht aber der Spec |
+| CSS-Injection in Vorschau-iframe | Low | `kopfzeilenText`/`firmenname` nicht HTML-escaped in generatePreviewHtml(). Mitigiert durch `sandbox="allow-same-origin"` (kein Script-Execution). Betrifft: [src/components/vorlagen/VorlagenEditor.tsx](src/components/vorlagen/VorlagenEditor.tsx) Zeile 103/107/113 |
+| RLS: Service-Rolle hat vollen Schreibzugriff | Akzeptiert | Konsistent mit anderen Tabellen im Projekt |
+
+### Bugs
+
+#### BUG-HIGH-1 — VorlageAuswahl: Stille PATCH-Fehler, kein User-Feedback
+- **Schwere:** High
+- **Datei:** [src/components/vorlagen/VorlageAuswahl.tsx](src/components/vorlagen/VorlageAuswahl.tsx) Zeile 36–47
+- **Beschreibung:** Wenn `PATCH /api/reports/[id]` beim Template-Wechsel fehlschlägt (Netzwerkfehler, 500), zeigt die UI den neuen Template-Namen, aber die DB speichert den alten. Beim nächsten PDF-Export verwendet der Server das alte Template — der Nutzer erhält das falsche Layout ohne Warnung.
+- **Steps to Reproduce:**
+  1. Bericht öffnen, Template in der Auswahl wechseln
+  2. PATCH-Request per DevTools blockieren
+  3. PDF exportieren → falsches Template wird verwendet
+- **Fix:** `try/catch` um den PATCH-Aufruf erweitern; bei Fehler Selektion zurücksetzen und Fehler-Toast anzeigen
+
+#### BUG-MED-1 — Lösch-Fehlermeldung außerhalb des Dialog-Kontexts
+- **Schwere:** Medium
+- **Datei:** [src/components/vorlagen/VorlagenKarte.tsx](src/components/vorlagen/VorlagenKarte.tsx) Zeile 172–174
+- **Beschreibung:** Wenn DELETE 409 zurückgibt (Vorlage von Berichten referenziert), schließt der AlertDialog und die Fehlermeldung erscheint als `<p>` unterhalb der Karte — außerhalb der Card-Grenzen, kaum sichtbar im Grid-Layout.
+- **Fix:** Fehlermeldung innerhalb des AlertDialogs anzeigen (vor dem Schließen) oder als Toast-Notification
+
+#### BUG-MED-2 — `GET /api/templates` fehlt `.limit()`
+- **Schwere:** Medium (Backend-Convention-Verletzung)
+- **Datei:** [src/app/api/templates/route.ts](src/app/api/templates/route.ts) Zeile 25–29
+- **Beschreibung:** Backend-Regeln schreiben `.limit()` bei allen List-Queries vor. Fehlt im Template-List-Endpunkt.
+- **Fix:** `.limit(100)` nach `.order('erstellt_am', { ascending: true })` einfügen
+
+#### BUG-SEC-1 — `GET /api/templates/[id]/logo` ohne Authentifizierung
+- **Schwere:** Medium (Security)
+- **Datei:** [src/app/api/templates/[id]/logo/route.ts](src/app/api/templates/%5Bid%5D/logo/route.ts) Zeile 26
+- **Beschreibung:** Der GET-Handler prüft keine Authentifizierung. Jeder mit einer Template-UUID kann das Logo herunterladen, ohne eingeloggt zu sein.
+- **Fix:** `requireAuth()` am Anfang des GET-Handlers hinzufügen
+
+### Responsive Testing
+
+| Viewport | Seite | Status |
+|----------|-------|--------|
+| 1440px (Desktop) | /admin/vorlagen | ✅ — Karten-Grid, zweispaltig |
+| 768px (Tablet) | /admin/vorlagen | ✅ — Responsive Grid |
+| 375px (Mobile) | /admin/vorlagen | ✅ — Einspaltig |
+| 1440px (Desktop) | /admin/vorlagen/neu | ✅ — Zweispaltiger Editor (Form + Preview) |
+| 768px (Tablet) | /admin/vorlagen/neu | ✅ — Editor-Felder sichtbar |
+
+### Cross-Browser
+
+Tests laufen nur in Chromium (kein echtes Auth-Session für Firefox/Safari-Tests). Chromium-Ergebnisse als repräsentativ.
+
+### Production-Ready Entscheidung
+
+**❌ NOT READY** — 1 High-Bug und 1 Medium-Security-Bug offen.
+
+**Muss behoben werden vor Deployment:**
+1. BUG-HIGH-1: VorlageAuswahl stille PATCH-Fehler
+2. BUG-SEC-1: Logo-Endpoint ohne Auth
+
+**Kann nach Deployment behoben werden:**
+3. BUG-MED-1: Lösch-Fehlermeldung Positioning
+4. BUG-MED-2: Fehlende `.limit()` in GET /api/templates
 
 ## Deployment
 _To be added by /deploy_

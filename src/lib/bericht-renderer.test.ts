@@ -341,4 +341,88 @@ describe('renderBerichtHTML — XSS-Sicherheit', () => {
     expect(html).not.toContain('<script>x</script>')
     expect(html).toContain('&lt;b&gt;Hacker&lt;/b&gt;')
   })
+
+  it('SICHERHEIT: Kopfzeilen-Text aus Vorlage wird HTML-escaped', () => {
+    const vorlage = {
+      name: 'Test', logo_pfad: null, firmenname: '',
+      primaerfarbe: '#000', sekundaerfarbe: '#333',
+      kopfzeilen_text: '<script>alert("xss")</script>',
+      fusszeilen_text: '',
+      schriftgroesse: 'mittel' as const,
+    }
+    const html = renderBerichtHTML(makeSnapshot(), vorlage)
+    expect(html).not.toContain('<script>alert("xss")</script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+
+  it('SICHERHEIT: Fußzeilen-Text aus Vorlage wird HTML-escaped', () => {
+    const vorlage = {
+      name: 'Test', logo_pfad: null, firmenname: '',
+      primaerfarbe: '#000', sekundaerfarbe: '#333',
+      kopfzeilen_text: '',
+      fusszeilen_text: '"><img src=x onerror=alert(1)>',
+      schriftgroesse: 'mittel' as const,
+    }
+    const html = renderBerichtHTML(makeSnapshot(), vorlage)
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+    expect(html).toContain('&lt;img')
+  })
+
+  it('SICHERHEIT: Firmenname aus Vorlage wird HTML-escaped', () => {
+    const vorlage = {
+      name: 'Test', logo_pfad: null,
+      firmenname: '<script>evil()</script>',
+      primaerfarbe: '#000', sekundaerfarbe: '#333',
+      kopfzeilen_text: '', fusszeilen_text: '',
+      schriftgroesse: 'mittel' as const,
+    }
+    const html = renderBerichtHTML(makeSnapshot(), vorlage)
+    expect(html).not.toContain('<script>evil()</script>')
+    expect(html).toContain('&lt;script&gt;')
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// vorlage_snapshot Fallback
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe('renderBerichtHTML — vorlage_snapshot Fallback', () => {
+  it('verwendet vorlage_snapshot wenn kein vorlage-Parameter übergeben wird', () => {
+    const s = makeSnapshot()
+    s.vorlage_snapshot = {
+      name: 'Snapshot-Vorlage',
+      logo_pfad: null,
+      firmenname: 'Snapshot GmbH',
+      primaerfarbe: '#112233',
+      sekundaerfarbe: '#445566',
+      kopfzeilen_text: 'Snapshot Kopfzeile',
+      fusszeilen_text: 'Snapshot Fußzeile',
+      schriftgroesse: 'gross',
+    }
+    const html = renderBerichtHTML(s)
+    expect(html).toContain('#112233')
+    expect(html).toContain('Snapshot Kopfzeile')
+    expect(html).toContain('Snapshot Fußzeile')
+    expect(html).toContain('13pt')
+  })
+
+  it('übergebene Vorlage hat Priorität über vorlage_snapshot', () => {
+    const s = makeSnapshot()
+    s.vorlage_snapshot = {
+      name: 'Alt', logo_pfad: null, firmenname: '',
+      primaerfarbe: '#aabbcc', sekundaerfarbe: '#ddeeff',
+      kopfzeilen_text: 'Alt', fusszeilen_text: '',
+      schriftgroesse: 'klein',
+    }
+    const vorlage = {
+      name: 'Neu', logo_pfad: null, firmenname: '',
+      primaerfarbe: '#111222', sekundaerfarbe: '#333444',
+      kopfzeilen_text: 'Neu', fusszeilen_text: '',
+      schriftgroesse: 'gross' as const,
+    }
+    const html = renderBerichtHTML(s, vorlage)
+    expect(html).toContain('#111222')
+    expect(html).toContain('Neu')
+    expect(html).not.toContain('#aabbcc')
+  })
 })
