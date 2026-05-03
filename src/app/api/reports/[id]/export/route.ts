@@ -205,7 +205,7 @@ export async function POST(
 
   const headerTemplate = `
     <div style="width:100%;padding:4px 20mm 4px;display:flex;align-items:center;justify-content:space-between;
-                font-family:'Helvetica Neue',Arial,sans-serif;font-size:8px;color:#555;border-bottom:1px solid #ddd;">
+                font-family:'Inter',Arial,sans-serif;font-size:8px;color:#555;border-bottom:1px solid #ddd;">
       <div style="min-width:80px;">${logoImgHtml}</div>
       <div style="text-align:center;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;padding:0 8px;">
         ${berichtsTitel}
@@ -215,7 +215,7 @@ export async function POST(
 
   const footerTemplate = `
     <div style="width:100%;padding:4px 20mm 4px;display:flex;align-items:center;justify-content:space-between;
-                font-family:'Helvetica Neue',Arial,sans-serif;font-size:8px;color:#555;border-top:1px solid #ddd;">
+                font-family:'Inter',Arial,sans-serif;font-size:8px;color:#555;border-top:1px solid #ddd;">
       <div style="min-width:80px;">Nr. ${projektnummer}</div>
       <div style="text-align:center;flex:1;">${erstellerName}</div>
       <div style="min-width:80px;text-align:right;">Seite <span class="pageNumber"></span> von <span class="totalPages"></span></div>
