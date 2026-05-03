@@ -1,8 +1,8 @@
 # PROJ-4: Medien-Verwaltung
 
-## Status: Approved
+## Status: In Review
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-25
+**Last Updated:** 2026-05-03
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung) — Nutzer muss eingeloggt sein
@@ -300,6 +300,91 @@ VPS (Docker)
 ### Follow-up nach Deployment
 
 - **BUG-004 Upload**: Validierung der `begehung_id` beim Upload analog zur PATCH-Route nachziehen (`/api/media/upload/route.ts` Zeile 64ff).
+
+---
+
+## QA Re-Test 2026-05-03
+
+**Tester:** QA Engineer
+**Unit-Tests:** 34/34 ✅ (313 Gesamt inkl. Regression)
+**E2E-Tests:** 8 bestanden, 12 übersprungen (Auth-Session in Dev nicht verfügbar)
+**Entscheidung: ❌ NICHT PRODUKTIONSREIF** — 1 neuer HIGH-Bug (BUG-007) gefunden.
+
+---
+
+### Acceptance Criteria (Re-Test 2026-05-03)
+
+| # | Kriterium | Status | Notiz |
+|---|-----------|--------|-------|
+| 1 | Drag-and-Drop-Upload + Datei-Browser (JPEG/PNG/HEIC/WebP, max. 25 MB) | ✅ PASS | Keine Änderung seit letztem QA |
+| 2 | Gleichzeitiger Upload bis zu 20 Fotos | ✅ PASS | Keine Änderung |
+| 3 | Serverseitige Komprimierung (max. 2 MB Anzeigeversion, Original behalten) | ✅ PASS | Keine Änderung |
+| 4 | Projektzuordnung (Pflicht), Begehungszuordnung (optional) | ✅ PASS | Keine Änderung |
+| 5 | Bildunterschrift (max. 500 Zeichen) editierbar | ❌ FAIL | **BUG-007** — Dialog zeigt leeres Textarea statt bestehender Caption; Klick auf "Speichern" löscht Caption |
+| 6 | KI-Bildunterschrift generieren (Claude Vision, nicht auto-gespeichert) | ✅ PASS | Keine Änderung |
+| 7 | Galerie-Ansicht (Rasteransicht, Datum, Uploader, Bildunterschrift) | ✅ PASS | Keine Änderung |
+| 8 | Sortierbar nach Upload-Datum und Begehungsdatum | ✅ PASS | Keine Änderung |
+| 9 | Soft-Delete (nur Eigentümer oder Admin) | ✅ PASS | Keine Änderung |
+| 10 | Kein öffentlicher Dateizugriff (Auth-Check vor File-Stream) | ✅ PASS | Keine Änderung |
+
+---
+
+### Bugs (Re-Test 2026-05-03)
+
+| Bug | Schwere | Beschreibung | Status |
+|-----|---------|-------------|--------|
+| BUG-004 | MEDIUM | `begehung_id` im Upload ohne Projektzugehörigkeitsprüfung | ⚠️ Noch offen — unveränd. seit 2026-04-26 |
+| BUG-007 | **HIGH** | FotoDetailDialog: State nicht mit `foto`-Prop synchronisiert — Caption-Verlust möglich | 🔴 NEU |
+
+#### BUG-007 — HIGH (NEU): FotoDetailDialog zeigt leeres Textarea / löscht bestehende Caption
+
+**Datei:** `src/components/medien/FotoDetailDialog.tsx` Zeilen 35–36
+
+**Wurzel:** `useState` wird nur beim ersten Mount initialisiert (mit `foto=null` → `''`). Da die Komponente permanent gemountet bleibt und der `if (!foto) return null`-Guard nach den Hooks kommt, werden die Hooks bei jedem Render aufgerufen, aber ihre Initialwerte nie aktualisiert.
+
+```tsx
+// Initialisierung einmalig beim ersten Mount (foto ist null → '')
+const [unterschrift, setUnterschrift] = useState(foto?.bildunterschrift ?? '')
+const [begehungId, setBegehungId] = useState<string>(foto?.begehung_id ?? KEINE_BEGEHUNG)
+```
+
+**Schritte zur Reproduktion:**
+1. Galerie aufrufen; Foto mit Caption „Rohbau Ostseite" vorhanden
+2. Hover über Foto → Bearbeiten-Button klicken
+3. Dialog öffnet sich — Textarea ist **leer** statt „Rohbau Ostseite"
+4. Ohne etwas zu tippen auf „Speichern" klicken
+5. API-Call PATCH mit `bildunterschrift: null` → Caption wird gelöscht (**Datenverlust**)
+
+**Schwere: HIGH** — Datenverlust; Benutzer kann unbeabsichtigt Captions löschen
+
+**Fix-Empfehlung:** `key={foto?.id ?? 'none'}` auf die `FotoDetailDialog`-Instanz in `page.tsx` setzen, damit React die Komponente bei jedem neuen Foto neu mountet und die State-Initialisierung korrekt erfolgt. Alternativ: `useEffect` zum Resetten der State-Variablen wenn `foto` sich ändert.
+
+---
+
+### Security Audit (Re-Test 2026-05-03)
+
+| Bereich | Befund | Status |
+|---------|--------|--------|
+| Authentifizierung | Alle 6 API-Endpunkte prüfen Auth via `requireAuth()` | ✅ OK |
+| Datei-Auslieferung | `/api/media/file/[id]` prüft Auth + Projektmitgliedschaft | ✅ OK |
+| Path-Traversal | UUID-Validierung verhindert Directory-Traversal | ✅ OK |
+| Begehungs-Zuordnung (Upload) | Keine Projektzugehörigkeitsprüfung bei `begehung_id` | ⚠️ BUG-004 offen |
+| Rate-Limiting KI | In-Memory-Map (reset bei Server-Neustart) — akzeptabel für kleines Team | ✅ OK |
+| Alle weiteren Bereiche | Unverändert OK seit Re-Test 2026-04-26 | ✅ OK |
+
+---
+
+### Test-Ergebnisse (Re-Test 2026-05-03)
+
+**Unit-Tests (Vitest):**
+- `src/app/api/media/upload/route.test.ts` — 10 Tests ✅
+- `src/app/api/media/route.test.ts` — 7 Tests ✅
+- `src/app/api/media/[id]/route.test.ts` — 16 Tests ✅ (inkl. 1 neuer Test für BUG-007 nicht abdeckbar ohne React Testing Library)
+- **Gesamt: 313 Tests bestanden (inkl. Regression)**
+
+**E2E-Tests (Playwright/Chromium):**
+- `tests/PROJ-4-medien-verwaltung.spec.ts` — 8 bestanden, 12 übersprungen (Auth)
+- Hinweis: Bestehender Test `'AC: Bearbeiten-Button öffnet Detail-Dialog mit Bildunterschrift-Feld'` würde BUG-007 fangen (`toHaveValue('Rohbau Ostseite')`), ist aber wegen fehlender Auth-Session übersprungen
 
 ## Deployment
 _To be added by /deploy_
