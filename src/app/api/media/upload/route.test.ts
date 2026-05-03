@@ -27,6 +27,7 @@ vi.mock('heic-convert', () => ({
 const state = {
   projekt: null as unknown,
   mitglied: null as unknown,
+  begehung: null as unknown,
   insertError: null as unknown,
 }
 
@@ -43,6 +44,11 @@ vi.mock('@/lib/supabase-service', () => ({
           select: () => ({
             eq: () => ({ eq: () => ({ single: () => Promise.resolve({ data: state.mitglied, error: null }) }) }),
           }),
+        }
+      }
+      if (tbl === 'begehungen') {
+        return {
+          select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: state.begehung, error: null }) }) }),
         }
       }
       // fotos
@@ -83,6 +89,7 @@ describe('POST /api/media/upload', () => {
     vi.clearAllMocks()
     state.projekt = null
     state.mitglied = null
+    state.begehung = null
     state.insertError = null
   })
 
@@ -187,5 +194,34 @@ describe('POST /api/media/upload', () => {
     const json = await res.json()
     expect(json.hochgeladen).toHaveLength(1)
     expect(json.fehler).toHaveLength(1)
+  })
+
+  it('gibt 422 zurück wenn begehung_id zu einem anderen Projekt gehört (BUG-004)', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(admin)
+    state.projekt = { id: 'proj-1' }
+    state.begehung = { projekt_id: 'proj-ANDERS' }
+    const res = await POST(makeReq([makeJpeg()], 'proj-1', 'beg-fremdes-projekt'))
+    expect(res.status).toBe(422)
+    const json = await res.json()
+    expect(json.error).toMatch(/Begehung/)
+  })
+
+  it('gibt 422 zurück wenn begehung_id nicht existiert (BUG-004)', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(admin)
+    state.projekt = { id: 'proj-1' }
+    state.begehung = null
+    const res = await POST(makeReq([makeJpeg()], 'proj-1', 'beg-unbekannt'))
+    expect(res.status).toBe(422)
+  })
+
+  it('akzeptiert Upload wenn begehung_id zum selben Projekt gehört', async () => {
+    vi.mocked(requireAuth).mockResolvedValue(admin)
+    state.projekt = { id: 'proj-1' }
+    state.begehung = { projekt_id: 'proj-1' }
+    state.insertError = null
+    const res = await POST(makeReq([makeJpeg()], 'proj-1', 'beg-korrekt'))
+    expect(res.status).toBe(207)
+    const json = await res.json()
+    expect(json.hochgeladen).toHaveLength(1)
   })
 })

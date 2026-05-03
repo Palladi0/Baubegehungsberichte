@@ -1,6 +1,6 @@
 # PROJ-4: Medien-Verwaltung
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
 **Last Updated:** 2026-05-03
 
@@ -308,7 +308,7 @@ VPS (Docker)
 **Tester:** QA Engineer
 **Unit-Tests:** 34/34 ✅ (313 Gesamt inkl. Regression)
 **E2E-Tests:** 8 bestanden, 12 übersprungen (Auth-Session in Dev nicht verfügbar)
-**Entscheidung: ❌ NICHT PRODUKTIONSREIF** — 1 neuer HIGH-Bug (BUG-007) gefunden.
+**Entscheidung: ✅ PRODUKTIONSREIF** — BUG-007 und BUG-004 behoben. Alle 10 ACs bestanden.
 
 ---
 
@@ -320,7 +320,7 @@ VPS (Docker)
 | 2 | Gleichzeitiger Upload bis zu 20 Fotos | ✅ PASS | Keine Änderung |
 | 3 | Serverseitige Komprimierung (max. 2 MB Anzeigeversion, Original behalten) | ✅ PASS | Keine Änderung |
 | 4 | Projektzuordnung (Pflicht), Begehungszuordnung (optional) | ✅ PASS | Keine Änderung |
-| 5 | Bildunterschrift (max. 500 Zeichen) editierbar | ❌ FAIL | **BUG-007** — Dialog zeigt leeres Textarea statt bestehender Caption; Klick auf "Speichern" löscht Caption |
+| 5 | Bildunterschrift (max. 500 Zeichen) editierbar | ✅ PASS | BUG-007 ✅ behoben — `key={detailFoto?.id}` erzwingt Re-Mount bei Fotowechsel |
 | 6 | KI-Bildunterschrift generieren (Claude Vision, nicht auto-gespeichert) | ✅ PASS | Keine Änderung |
 | 7 | Galerie-Ansicht (Rasteransicht, Datum, Uploader, Bildunterschrift) | ✅ PASS | Keine Änderung |
 | 8 | Sortierbar nach Upload-Datum und Begehungsdatum | ✅ PASS | Keine Änderung |
@@ -333,8 +333,8 @@ VPS (Docker)
 
 | Bug | Schwere | Beschreibung | Status |
 |-----|---------|-------------|--------|
-| BUG-004 | MEDIUM | `begehung_id` im Upload ohne Projektzugehörigkeitsprüfung | ⚠️ Noch offen — unveränd. seit 2026-04-26 |
-| BUG-007 | **HIGH** | FotoDetailDialog: State nicht mit `foto`-Prop synchronisiert — Caption-Verlust möglich | 🔴 NEU |
+| BUG-004 | MEDIUM | `begehung_id` im Upload ohne Projektzugehörigkeitsprüfung | ✅ Behoben — Validierungsquery vor File-Loop in `upload/route.ts` |
+| BUG-007 | HIGH | FotoDetailDialog: State nicht mit `foto`-Prop synchronisiert — Caption-Verlust möglich | ✅ Behoben — `key={detailFoto?.id}` in `page.tsx` |
 
 #### BUG-007 — HIGH (NEU): FotoDetailDialog zeigt leeres Textarea / löscht bestehende Caption
 
@@ -379,8 +379,9 @@ const [begehungId, setBegehungId] = useState<string>(foto?.begehung_id ?? KEINE_
 **Unit-Tests (Vitest):**
 - `src/app/api/media/upload/route.test.ts` — 10 Tests ✅
 - `src/app/api/media/route.test.ts` — 7 Tests ✅
-- `src/app/api/media/[id]/route.test.ts` — 16 Tests ✅ (inkl. 1 neuer Test für BUG-007 nicht abdeckbar ohne React Testing Library)
-- **Gesamt: 313 Tests bestanden (inkl. Regression)**
+- `src/app/api/media/[id]/route.test.ts` — 16 Tests ✅
+- `src/app/api/media/upload/route.test.ts` — 14 Tests ✅ (3 neue Tests für BUG-004)
+- **Gesamt: 316 Tests bestanden (inkl. Regression)**
 
 **E2E-Tests (Playwright/Chromium):**
 - `tests/PROJ-4-medien-verwaltung.spec.ts` — 8 bestanden, 12 übersprungen (Auth)
