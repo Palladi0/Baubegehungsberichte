@@ -522,3 +522,166 @@ test('SEC-05: POST /api/reports/generate gibt 422 bei ungültigem Datum-Format (
   // Ohne Auth: Redirect zu Login (302/307); mit Auth: 422 (Zod-Validierung)
   expect([302, 307, 308, 422]).toContain(response.status())
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Red-Team Re-QA (2026-05-03)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('SEC-06: GET /api/reports/[id]/versions schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.get(`/api/reports/${BERICHT_ID}/versions`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-07: GET /api/reports/[id]/versions/[nr] schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.get(`/api/reports/${BERICHT_ID}/versions/1`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-08: PATCH /api/reports/[id] (Vorlage) schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.patch(`/api/reports/${BERICHT_ID}`, {
+    data: { vorlage_id: null },
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-09: DELETE /api/reports/[id] schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.delete(`/api/reports/${BERICHT_ID}`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-10: POST /api/reports/[id]/duplicate schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.post(`/api/reports/${BERICHT_ID}/duplicate`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-11: POST /api/reports/generate gibt 422 bei ungültiger UUID', async ({ page }) => {
+  const response = await page.request.post('/api/reports/generate', {
+    data: { projekt_id: 'not-a-uuid', datum: '2026-04-27' },
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  // Ohne Auth: Redirect; mit Auth: 422 (Zod-Validierung)
+  expect([302, 307, 308, 422]).toContain(response.status())
+})
+
+test('SEC-12: POST /api/reports/generate gibt 400 bei leerem Body', async ({ page }) => {
+  const response = await page.request.post('/api/reports/generate', {
+    headers: { 'Content-Type': 'application/json' },
+    data: '',
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  // Ohne Auth: Redirect; mit Auth: 400 (JSON-Parse-Fehler)
+  expect([302, 307, 308, 400, 422]).toContain(response.status())
+})
+
+test('SEC-13: GET /api/reports listet keine Berichte ohne Auth (kein Datenleak)', async ({ page }) => {
+  const response = await page.request.get('/api/reports', {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+  // Bei 401: Body sollte keine Bericht-Liste enthalten
+  if (response.status() === 401) {
+    const body = await response.text()
+    expect(body).not.toContain('"berichte"')
+  }
+})
+
+test('SEC-14: POST /api/reports/[id]/export schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.post(`/api/reports/${BERICHT_ID}/export`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-15: GET /api/reports/[id]/download schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.get(`/api/reports/${BERICHT_ID}/download`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+test('SEC-16: PATCH /api/reports/[id]/status schützt Zugriff ohne Auth', async ({ page }) => {
+  const response = await page.request.patch(`/api/reports/${BERICHT_ID}/status`, {
+    maxRedirects: 0,
+    failOnStatusCode: false,
+  })
+  expect([401, 302, 307, 308]).toContain(response.status())
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AC: Edge Cases (2026-05-03)
+// ─────────────────────────────────────────────────────────────────────────────
+
+test('AC-EDGE-01: Bericht ohne Abschnitte zeigt Leer-Hinweis im Editor', async ({ page }) => {
+  await setupMocks(page)
+  const leererBericht = {
+    ...MOCK_BERICHT,
+    aktuelle_version: {
+      ...MOCK_BERICHT.aktuelle_version,
+      inhalt: {
+        ...MOCK_VERSION_INHALT,
+        abschnitte: [],
+      },
+    },
+  }
+  await page.route(`/api/reports/${BERICHT_ID}`, (r) => {
+    if (r.request().method() === 'GET') {
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(leererBericht) })
+    } else {
+      r.continue()
+    }
+  })
+
+  await page.goto(`/berichte/${BERICHT_ID}`)
+  if (page.url().includes('/login')) { test.skip(); return }
+
+  await expect(page.getByText('Keine Abschnitte vorhanden.')).toBeVisible()
+})
+
+test('AC-EDGE-02: 404-Antwort vom Server zeigt Fehlerseite mit Wiederholen-Button', async ({ page }) => {
+  await setupMocks(page)
+  await page.route(`/api/reports/${BERICHT_ID}`, (r) =>
+    r.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ error: 'Bericht nicht gefunden' }) })
+  )
+
+  await page.goto(`/berichte/${BERICHT_ID}`)
+  if (page.url().includes('/login')) { test.skip(); return }
+
+  await expect(page.getByText('Bericht nicht gefunden')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Erneut versuchen/ })).toBeVisible()
+})
+
+test('AC-EDGE-03: Speichern-Fehler wird im UI als Alert angezeigt', async ({ page }) => {
+  await setupMocks(page)
+  await page.route(`/api/reports/${BERICHT_ID}`, (r) => {
+    if (r.request().method() === 'PUT') {
+      r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ error: 'Datenbankfehler' }) })
+    } else {
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(MOCK_BERICHT) })
+    }
+  })
+
+  await page.goto(`/berichte/${BERICHT_ID}`)
+  if (page.url().includes('/login')) { test.skip(); return }
+
+  await page.getByRole('button', { name: /Speichern/ }).click()
+  await expect(page.getByText('Datenbankfehler')).toBeVisible()
+})

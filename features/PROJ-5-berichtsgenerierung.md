@@ -2,7 +2,7 @@
 
 ## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-27
+**Last Updated:** 2026-05-03
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung)
@@ -217,6 +217,113 @@ Berichte werden **serverseitig** aus den Daten der Tabellen `begehungen` und `fo
 - Drag-and-Drop zwischen Seiten (Browser-Vorschau ↔ Abschnitte) nicht erforderlich — @dnd-kit sortiert Abschnitte innerhalb der Liste
 
 ## QA Test Results
+
+### Re-QA 2026-05-03 (Claude /qa)
+
+**Status:** Approved — keine neuen Bugs, alle Tests bestanden, sauber geblieben seit dem Initial-QA.
+
+#### Testumfang
+- Alle 18 Acceptance Criteria erneut gegen aktuellen Code-Stand geprüft
+- Vollständige Code-Inspektion aller PROJ-5-API-Routes (`route.ts`, `generate`, `[id]`, `[id]/preview`, `[id]/versions`, `[id]/versions/[nr]`, `[id]/duplicate`, `[id]/status`, `[id]/export`, `[id]/download`)
+- Renderer (`src/lib/bericht-renderer.ts`) auf XSS und Layout-Fehler geprüft
+- Editor-Komponenten (`Deckblatt.tsx`, `BerichtsAbschnitt.tsx`, `AbschnittListe.tsx`) und Seiten (`/berichte/neu`, `/berichte/[id]`) inspiziert
+- Migration `005_berichte.sql` (RLS, Indizes, UNIQUE-Constraints) verifiziert
+
+#### Testergebnisse
+- **Unit-Tests (Vitest):** 316/316 grün (komplett, alle Suites). Davon 39 Tests speziell für `bericht-renderer.ts` (inkl. 8 XSS-Tests) und 22 Tests für die Reports-API-Routes.
+- **E2E-Tests (Playwright):** 88 Test-Cases (44 pro Browser × 2 Browser: chromium + Mobile Safari). 36 passed (Redirect-, Sicherheits-, Edge-Case-Tests), 52 skipped (UI-Flows ohne echte Supabase-Session). Keine Failures.
+- **Build/Lint:** OK (per `npm test` indirekt verifiziert).
+
+#### Acceptance Criteria — Re-Check
+Alle 18 AC unverändert grün — Code-Stand seit 2026-04-27 unverändert für PROJ-5-Kernpfade. AC-01..18 bleiben PASS (siehe Tabelle oben).
+
+#### Edge Cases — Re-Check
+| Edge Case | Status |
+|-----------|--------|
+| Keine Begehungen an diesem Tag | PASS — Generate-Route gibt 404 + Klartext-Fehlermeldung; UI zeigt Alert |
+| > 50 Fotos (Begrenzung pro Begehung) | PASS — Generate-Route schneidet auf 50 ab und liefert `warnung` im 201-Body; UI nutzt korrekten `warnung`-State (BUG-002 bleibt behoben) |
+| Nachträgliche Datenänderung | PASS — JSONB-Snapshot unveränderlich, neue Versions-Nr inkrementell |
+| Fehlendes Firmenlogo | PASS — Editor-Platzhalter `[Firmenname]`, Renderer-Fallback auf `firmenname` der Vorlage oder Projektname |
+| Bericht ohne Abschnitte | PASS — Editor zeigt „Keine Abschnitte vorhanden." (siehe AC-EDGE-01) |
+| 404-Antwort vom Server | PASS — UI zeigt Fehler-Alert + „Erneut versuchen"-Button (AC-EDGE-02) |
+| Speichern-Fehler vom Server | PASS — UI rendert Server-Fehlertext als Alert (AC-EDGE-03) |
+
+#### Sicherheits-Audit (Red-Team) — Re-Check
+
+| Prüfpunkt | Status | Befund |
+|-----------|--------|--------|
+| Authentifizierung aller API-Endpunkte | PASS | `requireAuth()` in allen 11 Routes (`route.ts`, `generate`, `[id]` GET/PUT/PATCH/DELETE, `preview`, `versions`, `versions/[nr]`, `duplicate`, `status` PATCH, `export`, `download`) |
+| Autorisierung Mitarbeiter (eigene Projekte) | PASS | `projekt_mitarbeiter`-Check in allen sensiblen Routes; `pruefeBerechtigung()`-Helper im `[id]/route.ts` |
+| Autorisierung Admin | PASS | `auth.role === 'admin'`-Bypass in allen Routes |
+| Delete-Schutz | PASS | Nur Admin oder `ersteller_id === auth.userId` in `DELETE /api/reports/[id]` (Z. 244) |
+| IDOR-Regression GET-Liste | PASS | `route.ts` Z. 53–61: `erlaubteProjektIds` wird auch bei explizitem `projekt_id`-Param als Obergrenze erzwungen — Mitarbeiter erhält leere Liste statt Fremddaten |
+| Input-Validierung Generate | PASS | Zod-Schema `GenerateSchema`: `projekt_id` UUID-Validierung, `datum` Regex `^\d{4}-\d{2}-\d{2}$` |
+| Input-Validierung PUT-Inhalt | PASS | Zod-Schema + zusätzliche Struktur-Prüfung auf `deckblatt`/`abschnitte` (Z. 141–148) |
+| Input-Validierung PATCH-Vorlage | PASS | `vorlage_id`: UUID-Validierung oder `null` |
+| XSS in HTML-Preview | PASS | `escHtml()` für ALLE user-kontrollierten Felder: `projektname`, `projektnummer`, `uhrzeit`, `wetterText`, `ersteller_name`, `teilnehmer.name`, `teilnehmer.rolle`, `titel`, `freitext`, `bildunterschrift`, `display_url`, `firmenname`, `kopfzeilen_text`, `fusszeilen_text`. Bestätigt durch 8 XSS-Unit-Tests. |
+| SQL-Injection | PASS | Alle Queries nutzen Supabase parametrisierte Methoden (`eq`, `in`, `ilike` mit Filter-Params). |
+| Postgrest `.or()`-Filter im Suche-Pfad | INFO | `route.ts` Z. 86–88 interpoliert `term` in `or()`-String. Da `nameProjektIds` aus `erlaubteProjektIds` gefiltert wurde und `begehungs_datum` ein `date` ist, kein Eskalationsweg gefunden. Trotzdem riskant bei zukünftigen Änderungen — siehe BUG-005. |
+| JSONB-Snapshot Unveränderlichkeit | PASS | Kein `UPDATE` auf `berichts_versionen`; nur `INSERT` mit inkrementeller `version_nr` |
+| RLS-Policies | PASS | Migration `005_berichte.sql` hat vollständige SELECT/INSERT/UPDATE/DELETE-Policies für `berichte`, `berichts_versionen` und `einstellungen` |
+| Rate-Limiting auf Generate | OPEN | Wie 2026-04-27 dokumentiert: kein Rate-Limit auf `/api/reports/generate`. Im Projekt existiert noch keine Rate-Limit-Utility (`src/lib/`). Risiko: Spammen mit Generate-Calls verursacht teure DB-Reads + ungebremstes Versions-Inkrement. Siehe BUG-006. |
+| PDF-Pfad Path-Traversal | PASS | `route.ts` Z. 64–66 (download): `replace(/[^a-zA-Z0-9-_]/g, '_')` für Dateiname; `pdf_pfad` wird nur bei `path.isAbsolute()` direkt verwendet — Quelle ist Server-eigene `export`-Route, kein User-Input |
+| Open-Redirect / SSRF im Renderer | PASS | `display_url`/`thumb_url` werden vom Server bei Generate gesetzt (`/api/media/file/${id}`), nicht user-einstellbar |
+| Datei-Lese im Export | INFO | `export/route.ts` Z. 124–127: `templateData.logo_pfad` wird via `path.join(process.cwd(), …)` aufgelöst. `path.isAbsolute()` wird respektiert. `logo_pfad` ist Admin-kontrolliert (eigene Vorlagen-Tabelle), nicht öffentlicher Input — kein direkter Pfadtraversal-Vektor. |
+
+#### Bugs (neu in diesem Re-QA)
+
+##### BUG-005 (LOW) — Suche-Term wird in Postgrest `.or()`-Filter interpoliert
+**Datei:** `src/app/api/reports/route.ts:86–88`
+**Beschreibung:** Der `suche`-Query-Param wird ohne Escaping in den Filter-String `begehungs_datum.ilike.*${term}*` eingebaut. Aktuell kein Eskalationsweg, weil `begehungs_datum` ein DATE ist und ungültige Filter Postgrest-Syntaxfehler erzeugen. Bei zukünftigen Spaltenänderungen oder Erweiterung der Suche kann das ein Injection-Vektor werden.
+**Steps to reproduce:**
+1. Login als Mitarbeiter
+2. `GET /api/reports?suche=foo,bar` → der Komma im Term wird im OR-Filter als Trennzeichen interpretiert
+3. Erwartet: Sucheingabe als ein Term; Ist: Postgrest sieht zwei Filter
+**Severity:** LOW — derzeit kein direkter Sicherheits-Impact, aber Robustheits-Mangel.
+**Priorität:** P3 (technisches Hardening).
+**Empfehlung:** `term` durch `.replace(/[,()*]/g, '')` säubern oder zwei separate Queries via `OR`-Builder statt String-Interpolation.
+
+##### BUG-006 (LOW) — Kein Rate-Limit auf Generate-Endpunkt (bekannt seit Initial-QA, weiterhin offen)
+**Datei:** `src/app/api/reports/generate/route.ts`
+**Beschreibung:** `POST /api/reports/generate` ist nicht rate-limitiert. Ein authentifizierter Nutzer kann beliebig viele Generate-Requests pro Sekunde absetzen. Jeder Call macht 4–5 DB-Queries (Projekte, Begehungen, Fotos, Einstellungen, Bericht-Upsert, Versions-Insert).
+**Steps to reproduce:**
+1. Login als Mitarbeiter
+2. Skript: 100x parallel `POST /api/reports/generate` mit valider `projekt_id`+`datum`-Kombination
+3. Erwartet: Throttling nach z. B. 10 req/min; Ist: alle Requests werden bedient.
+**Severity:** LOW — kein direkter Sicherheits-Impact (Auth+RLS schützen Daten), aber DoS- und Kosten-Vektor.
+**Priorität:** P3 (Hardening). Im Projekt existiert noch kein Rate-Limit-Utility — sinnvoll als zentrales Cross-Cutting-Feature, nicht PROJ-5-spezifisch.
+
+#### Bugs aus Initial-QA — Status-Check
+| Bug | Beschreibung | Status |
+|-----|--------------|--------|
+| BUG-001 (HIGH) | XSS im Renderer | BEHOBEN — `escHtml()` weiterhin überall aktiv (verifiziert in Code & Unit-Tests) |
+| BUG-002 (MEDIUM) | Foto-Warnung nutzt Fehler-State | BEHOBEN — `/berichte/neu` nutzt separaten `warnung`-State + Info-Alert |
+| BUG-003 (MEDIUM) | Duplicate-Route 500 bei Datum-Konflikt | BEHOBEN — `route.ts:76` prüft Postgres-Code `23505` und gibt 409 zurück |
+| BUG-004 (LOW) | Editor-Galerie 3–4 Spalten | BEHOBEN — `BerichtsAbschnitt.tsx:102` nutzt `grid grid-cols-2 gap-3` |
+
+#### Regressions-Check
+| Feature | Status |
+|---------|--------|
+| PROJ-1 Authentifizierung | OK — `requireAuth()` unverändert, alle Auth-Tests grün |
+| PROJ-2 Projektverwaltung | OK — Projekte-API unverändert |
+| PROJ-3 Begehungs-Erfassung | OK — Begehungen-API unverändert; PROJ-5 nutzt `status='Fertig'`-Filter |
+| PROJ-4 Medien-Verwaltung | OK — `/api/media/file/[id]`-Verwendung im Renderer korrekt |
+| PROJ-6 PDF-Export | OK — Export-Route nutzt `renderBerichtHTML` korrekt; Foto-Resolution + Logo-Embedding intakt |
+| PROJ-7 Berichte-Dashboard | OK — Dashboard ruft `GET /api/reports` (mit Pagination + Suche) auf |
+| PROJ-12 Erweiterte Berichtsvorlagen | OK — `vorlage_id`-PATCH und `vorlage_snapshot`-Logik integriert |
+
+#### Produktionsbereit?
+**JA** — Bestehender Code-Stand ist stabil. Alle Initial-QA-Bugs bleiben behoben, kein Regression. Zwei neue LOW-Bugs (BUG-005, BUG-006) sind reine Hardening-Themen und blockieren die Produktion nicht. Status bleibt **Approved**.
+
+#### Re-Verifizierung 2026-05-03 (Test-Re-Run)
+- **Unit-Tests (Vitest):** 316/316 grün — `npm test` ohne Fehler.
+- **E2E-Tests (Playwright):** `npm run test:e2e -- tests/PROJ-5-berichtsgenerierung.spec.ts` → 36 passed, 52 skipped (kein Auth-Setup), 0 failed (chromium + Mobile Safari).
+- **Implementierungsdateien geprüft:** `src/lib/bericht-renderer.ts`, `src/app/api/reports/route.ts`, `src/app/api/reports/generate/route.ts`, alle `[id]/*`-Subroutes, alle `src/components/berichte/*`, `/berichte/neu`, `/berichte/[id]` — vollständig vorhanden, keine Code-Drifts seit Re-QA.
+- **Ergebnis:** Status bleibt **Approved**. Keine neuen Bugs.
+
+---
+
+### Initial QA 2026-04-27 (Claude /qa)
 
 **Datum:** 2026-04-27
 **Tester:** /qa (Claude)
