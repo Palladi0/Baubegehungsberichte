@@ -183,6 +183,49 @@ MEDIA_UPLOAD_PATH=/var/uploads/whatsapp
 
 ---
 
+### QA-Lauf 3 — 2026-05-03 (Test-Infrastruktur Fix)
+
+**QA-Datum:** 2026-05-03
+**Tester:** QA Engineer
+**Fokus:** Behebung fehlschlagender Unit-Tests durch Modul-Ladezeit-Problem
+
+#### Issue
+Die Unit-Tests in `src/lib/twilio.test.ts` schlugen fehl mit:
+```
+TypeError: The "key" argument must be of type string ... Received undefined
+```
+
+**Ursache:** `src/lib/twilio.ts` liest `process.env.TWILIO_AUTH_TOKEN` in eine Modul-Konstante zur Lade-Zeit. Die ESM-`import`-Anweisungen werden gehoistet und laufen vor dem `beforeAll`-Hook — d. h. die Env-Variablen waren beim Modul-Import noch nicht gesetzt.
+
+#### Fix (nur Test-Datei, keine Quellcode-Änderung)
+- Env-Variablen werden auf Top-Level der Test-Datei gesetzt (vor allen Imports)
+- `./twilio` wird per dynamischem `await import()` in `beforeAll` geladen, sodass die Env-Variablen garantiert verfügbar sind
+- Zusätzlicher Edge-Case-Test ergänzt: plausibel aussehende Base64-Signatur mit falschen Params/URL muss ebenfalls abgelehnt werden (negative Path)
+
+#### Automated Tests (nach Fix)
+```
+Unit Tests (Vitest):  38 Dateien, 340 Tests — alle bestanden (vorher 2 fail / 339)
+- twilio.test.ts:    6 passed (vorher 5, +1 Edge-Case)
+E2E (Playwright):    2 passed / 24 skipped (kein Auth-Cookie ohne Live-Session)
+                     Datei: tests/PROJ-8-whatsapp-integration.spec.ts (13 Tests × 2 Browser)
+```
+
+#### Acceptance Criteria — Re-Verification
+Alle in Lauf 2 bestätigten Pass-Status bleiben gültig. Keine Regression.
+
+#### Bugs in Lauf 3
+**Keine neuen Bugs gefunden.**
+- BUG-2 (Medium, Race Condition Worker): weiter offen, akzeptiertes Risiko (Single-Server MVP)
+- BUG-3 (Low, Projektkürzel-Antwort): weiter offen, by design (PROJ-10-Abhängigkeit)
+- BUG-4 (Low, Twilio-Domain-Validierung): weiter offen, akzeptiertes Risiko
+- BUG-6 (Low, React Fragment ohne key): weiter offen — nur Konsolen-Warnung, kein funktionaler Ausfall
+
+#### Produktionsreife-Entscheidung Lauf 3
+**APPROVED (Sandbox-Modus) — unverändert**
+Keine neuen Critical/High-Bugs. Test-Suite ist nun stabil und wiederholbar (kein Env-Var-Vorab-Setup mehr außerhalb der Test-Datei nötig).
+
+---
+
 ### QA-Lauf 2 — 2026-04-28 (Re-QA nach Erweiterungen durch PROJ-9/10/11)
 
 **QA-Datum:** 2026-04-28
