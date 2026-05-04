@@ -1,6 +1,6 @@
 # PROJ-2: Projektverwaltung
 
-## Status: Approved
+## Status: Deployed
 **Created:** 2026-04-21
 **Last Updated:** 2026-04-30 (Bug-Fixes)
 

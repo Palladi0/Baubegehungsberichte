@@ -1,6 +1,6 @@
 # PROJ-9: Sprach-Transkription
 
-## Status: Approved
+## Status: Deployed
 **Created:** 2026-04-21
 **Last Updated:** 2026-05-04 (BUG-2, BUG-3, BUG-4, BUG-5, BUG-6, BUG-7, BUG-8, BUG-9 behoben)
 

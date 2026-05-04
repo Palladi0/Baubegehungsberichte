@@ -1,6 +1,6 @@
 # PROJ-7: Berichte-Dashboard
 
-## Status: Approved
+## Status: Deployed
 **Created:** 2026-04-21
 **Last Updated:** 2026-05-03
 
