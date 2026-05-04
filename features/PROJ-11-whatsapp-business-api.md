@@ -1,8 +1,8 @@
 # PROJ-11: WhatsApp Business API Migration
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-23
+**Last Updated:** 2026-05-04
 
 ## Dependencies
 - Requires: PROJ-8 (WhatsApp-Integration Twilio Sandbox) — Sandbox muss vollständig funktionieren
@@ -185,70 +185,60 @@ Das Twilio SDK (`twilio`) ist bereits vorhanden. Template-Aufrufe und API-Prüfu
 
 ## QA Test Results
 
-**QA-Datum:** 2026-04-29
+### QA-Runde 1 (2026-04-29) — ❌ NOT READY — 1 Critical, 3 Medium, 3 Low Bugs
+
+> Erstes QA-Ergebnis; alle gefundenen Bugs wurden anschließend behoben. Details und Bug-Dokumentation der Runde 1 sind durch Runde 2 ersetzt.
+
+---
+
+### QA-Runde 2 (Re-QA) — ✅ APPROVED
+
+**QA-Datum:** 2026-05-04
 **Tester:** /qa (Claude)
-**Status:** ❌ NOT READY — 1 Critical Bug
+**Status:** ✅ READY — Alle 7 Bugs aus Runde 1 behoben, keine neuen Critical/High Bugs
 
 ### Automated Tests
-- **Vitest Unit/Integration:** 225 passed (197 existing + 28 neue PROJ-11-Tests) — keine Regressionen
-- **Playwright E2E:** 2 passed, 38 skipped (server-seitige Auth-Weiterleitung ohne echte Supabase-Session — konsistent mit PROJ-8/9/10)
-- **Neue Unit-Test-Files:**
-  - `src/app/api/admin/whatsapp/config/route.test.ts` — 10 Tests (GET + POST)
+- **Vitest Unit/Integration:** 353 passed (351 existing + 2 neue Regressionstests BUG-2/3) — keine Regressionen
+- **Playwright E2E:** 1 passed, 19 skipped (server-seitige Auth-Weiterleitung ohne echte Supabase-Session — konsistent mit PROJ-8/9/10)
+- **Unit-Test-Files (PROJ-11):**
+  - `src/app/api/admin/whatsapp/config/route.test.ts` — 12 Tests (GET + POST + 2 neue Format-Validierungstests)
   - `src/app/api/admin/whatsapp/templates/route.test.ts` — 6 Tests
-  - `src/app/api/admin/whatsapp/migration-checks/route.test.ts` — 7 Tests
-  - `src/app/api/webhooks/twilio/route.test.ts` — 3 neue Tests für Produktions-Modus
+  - `src/app/api/admin/whatsapp/migration-checks/route.test.ts` — 7 Tests (darunter vollständiges Produktions-Szenario)
+  - `src/app/api/webhooks/twilio/route.test.ts` — 11 Tests gesamt (inkl. 3 für Produktions-Modus)
 - **E2E-Test-File:** `tests/PROJ-11-whatsapp-business-api.spec.ts` — 20 Tests (AC-AUTH, AC-2 bis AC-7)
+
+### Bug-Fix-Verifikation (alle 7 Bugs aus Runde 1)
+
+| Bug | Schwere | Fix verifiziert | Methode |
+|-----|---------|-----------------|---------|
+| BUG-1: Echte Credentials in .env.local.example | Critical | ✅ BEHOBEN | Working Tree sauber: alle Werte sind Platzhalter (`ACxxxxxx`, `+1xxxxxxxxxx`) |
+| BUG-2: Keine E.164-Validierung | Medium | ✅ BEHOBEN | `E164_REGEX = /^\+[1-9]\d{1,14}$/` in `config/route.ts:36`; Regressionstest grün |
+| BUG-3: Keine Template-SID-Validierung | Medium | ✅ BEHOBEN | `TEMPLATE_SID_REGEX = /^HX[0-9a-f]{32}$/i` in `config/route.ts:37`; Regressionstest grün |
+| BUG-4: Fehlende `.limit()` | Medium | ✅ BEHOBEN | `.limit(CONFIG_KEYS.length)` in GET-Handler `config/route.ts:26` |
+| BUG-5: Kein Bestätigungsdialog | Low | ✅ BEHOBEN | AlertDialog in `BetriebsmodusCard.tsx:224–247`; Switch → Produktionsmodus zeigt Dialog |
+| BUG-6: Checkbox-State-Reset | Low | ✅ BEHOBEN | localStorage-Persistenz in `MigrationsChecklisteCard.tsx:41–55` |
+| BUG-7: vi.mock hoisting | Low | ✅ BEHOBEN | `vi.mock('twilio')` auf Top-Level in `webhooks/twilio/route.test.ts:8–12` |
 
 ### Acceptance Criteria
 
 | # | Kriterium | Status | Notiz |
 |---|-----------|--------|-------|
-| AC-1 | WhatsApp Business Account bei Meta verifiziert | N/A | Erfordert echten Meta-Account; Admin-Checkliste vorhanden |
-| AC-2 | Offizielle Büronummer als WA Business Number registriert | N/A | Migrations-Checkliste prüft automatisch via Twilio API |
+| AC-1 | WhatsApp Business Account bei Meta verifiziert | N/A | Erfordert echten Meta-Account; Admin-Checkliste vorhanden und funktionsfähig |
+| AC-2 | Offizielle Büronummer als WA Business Number registriert | N/A | Migrations-Checkliste prüft automatisch via Twilio API; Validierung auf E.164-Format erzwungen |
 | AC-3 | Webhook-URL unverändert (`/api/webhooks/twilio`) | ✅ PASS | Route unverändert; WebhookUrlCard weiterhin sichtbar |
-| AC-4 | Alle Mitarbeiter ohne Sandbox-Registrierung erreichbar | N/A | Produktions-Modus-Logik korrekt implementiert |
+| AC-4 | Alle Mitarbeiter ohne Sandbox-Registrierung erreichbar | N/A | Produktions-Modus-Logik korrekt implementiert und getestet |
 | AC-5 | Bestehende Sandbox-Daten bleiben erhalten | ✅ PASS | SQL-Migration nur additive (`system_config`-Tabelle); keine Datenmigration |
-| AC-6 | Nachrichten-Templates bei Meta registriert | N/A | TemplateStatusCard und Template-SID-Felder implementiert |
-| AC-7 | Modus-Umschaltung ohne Code-Deployment (DB-gespeichert) | ✅ PASS | Toggle schreibt in `system_config` via POST /api/admin/whatsapp/config |
+| AC-6 | Nachrichten-Templates bei Meta registriert | N/A | TemplateStatusCard + Template-SID-Felder (Zod-Validierung auf HX-Format) |
+| AC-7 | Modus-Umschaltung ohne Code-Deployment (DB-gespeichert) | ✅ PASS | Toggle schreibt in `system_config` via POST /api/admin/whatsapp/config; AlertDialog schützt vor Missklick |
 
-### Bugs Found
-
-#### 🔴 CRITICAL
-
-**BUG-1: Echte Twilio-Credentials in `.env.local.example`**
-- **Beschreibung:** Die aktuell nicht committete Version von `.env.local.example` enthält echte Produktions-Credentials (`TWILIO_PRODUCTION_ACCOUNT_SID=ACdabf8c...`, `TWILIO_PRODUCTION_AUTH_TOKEN=222d7e...`) statt Platzhalter. Im Git-Stand sind Platzhalter (`ACxxxxxx`). Die Working-Tree-Änderung muss zurückgesetzt werden.
-- **Auswirkung:** Bei versehentlichem `git add .env.local.example` werden echte Credentials ins Repository committed und öffentlich zugänglich.
-- **Reproduktion:** `git diff .env.local.example` zeigt echte Werte statt `ACxxxxxxxx`.
-- **Priorität:** Sofort beheben vor jedem `git add`
-
-#### 🟡 MEDIUM
-
-**BUG-2: Keine E.164-Format-Validierung für `whatsapp_active_number`**
-- **Beschreibung:** POST `/api/admin/whatsapp/config` akzeptiert beliebigen String für `whatsapp_active_number`. Kein Regex-Check auf E.164-Format (`\+[1-9]\d{7,14}`).
-- **Auswirkung:** Ungültige Nummer wird in DB gespeichert; Twilio-Nachrichten im Produktions-Modus schlagen lautlos fehl.
-- **Fix:** Zod-Schema um `.regex(/^\+[1-9]\d{7,14}$/)` ergänzen.
-
-**BUG-3: Keine Format-Validierung für Template-SIDs**
-- **Beschreibung:** Template-SID-Felder akzeptieren beliebige Strings. Twilio Content SIDs haben Format `HX[a-z0-9]{32}` (34 Zeichen). Ungültige SIDs führen zu stillen Template-Fehlern im Produktions-Modus.
-- **Fix:** Zod-Schema um `.regex(/^HX[a-z0-9]{32}$/).optional()` ergänzen.
-
-**BUG-4: Fehlende `.limit()` auf `system_config`-Query (Backend-Regel-Verletzung)**
-- **Beschreibung:** In `GET /api/admin/whatsapp/config` fehlt `.limit()` auf der `system_config`-Abfrage. Verletzt die Backend-Konvention "Use `.limit()` on all list queries".
-- **Fix:** `.in('key', CONFIG_KEYS).limit(10)` verwenden.
+### Neue Findings (Runde 2)
 
 #### 🔵 LOW
 
-**BUG-5: Kein Bestätigungsdialog beim Wechsel in Produktions-Modus**
-- **Beschreibung:** Der Modus-Toggle wechselt sofort von Sandbox → Produktion ohne Rückfrage. Ein Missklick aktiviert den Produktions-Modus für alle eingehenden Nachrichten.
-- **Fix:** AlertDialog-Komponente vor dem POST-Request anzeigen ("Wirklich in Produktions-Modus wechseln?").
-
-**BUG-6: Manuelle Checklisten-Checkboxen werden bei Seitenreload zurückgesetzt**
-- **Beschreibung:** "Meta Business Account verifiziert" und "Testlauf erfolgreich" sind rein client-seitig. Nach Seitenreload sind beide zurückgesetzt und das "Bereit für Produktion"-Badge verschwindet, obwohl die Schritte erledigt wurden.
-- **Fix:** Checkbox-Zustand in `system_config` persistieren (zwei neue Keys) oder `localStorage` verwenden.
-
-**BUG-7: `vi.mock('twilio')` nested in Test-Funktion — Hoisting-Warnung**
-- **Beschreibung:** In `src/app/api/webhooks/twilio/route.test.ts` wird `vi.mock('twilio')` innerhalb einer `it()`-Funktion aufgerufen. Vitest warnt, dass dies in zukünftigen Versionen ein Fehler sein wird.
-- **Fix:** Mock an die oberste Ebene des Test-Files verschieben (vor den `describe`-Block).
+**FINDING-1: HEAD-Commit enthält echte Telefonnummern in `.env.local.example`**
+- **Beschreibung:** Im committed HEAD stehen `TWILIO_WHATSAPP_NUMBER=+12295447789` und `TWILIO_PRODUCTION_PHONE_NUMBER=+4989123456`. Der Working Tree korrigiert dies bereits auf `+1xxxxxxxxxx`. API-Secrets (SID/Auth-Token) sind in HEAD korrekt maskiert.
+- **Auswirkung:** Telefonnummern sind weniger sensitiv als API-Keys — kein direktes Sicherheitsrisiko. Dennoch sollten Example-Files ausschließlich fiktive Werte enthalten.
+- **Empfehlung:** Working-Tree-Bereinigung committen bevor Branch gemergt wird.
 
 ### Security Audit
 
@@ -257,20 +247,22 @@ Das Twilio SDK (`twilio`) ist bereits vorhanden. Template-Aufrufe und API-Prüfu
 | Authentifizierung | Alle 3 neuen Routen verwenden `requireAdmin()` | ✅ |
 | Autorisierung | Nur Admins können Konfiguration lesen/schreiben | ✅ |
 | Hardcoded Secrets im Code | Keine — nur `process.env.*`-Zugriffe | ✅ |
-| Secrets in `.env.local.example` | **Echte Credentials in Working Tree** | ❌ BUG-1 |
+| Secrets in `.env.local.example` (Working Tree) | Alle Werte sind Platzhalter | ✅ |
+| Telefonnummern in HEAD `.env.local.example` | Echte Nummern in committed Example | ⚠️ FINDING-1 (LOW) |
 | RLS auf `system_config` | Admin-Read + Service-Role-Full — korrekt | ✅ |
-| Input-Validierung | Zod auf POST /config — aber ohne Phone/SID-Format | ⚠️ BUG-2/3 |
+| Input-Validierung POST /config | E.164 + HX-SID-Regex via Zod | ✅ |
 | SQL-Injection | Supabase parametrierte Queries | ✅ |
 | SSRF | Twilio-URLs sind hardcodiert, nicht user-input | ✅ |
 | Twilio Webhook HMAC | Unverändert — gleiche Signatur-Validierung | ✅ |
 
 ### Cross-Browser / Responsive
-Nicht manuell testbar ohne echte Supabase-Session. E2E-Tests decken Auth-Redirect für Chromium und Mobile Safari ab.
+Nicht manuell testbar ohne echte Supabase-Session. E2E-Tests decken Auth-Redirect für Chromium ab.
 
 ### Regression Check
-- Alle 197 existierenden Tests weiterhin grün ✅
+- Alle 351 existierenden Tests weiterhin grün ✅
 - PROJ-8 Webhook-Route: Sandbox-Modus-Verhalten unverändert ✅
 - PROJ-9/10 Admin-UI-Komponenten: Weiterhin auf der Seite vorhanden ✅
+- Keine neuen Critical oder High Bugs gefunden ✅
 
 ## Deployment
 _To be added by /deploy_

@@ -51,7 +51,7 @@ describe('GET /api/admin/whatsapp/config', () => {
   it('gibt Konfiguration zurück (200)', async () => {
     vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
     mockSelect.mockReturnValue({
-      in: () => ({ data: defaultConfigRows, error: null }),
+      in: () => ({ limit: () => ({ data: defaultConfigRows, error: null }) }),
     })
 
     const res = await GET()
@@ -66,7 +66,7 @@ describe('GET /api/admin/whatsapp/config', () => {
   it('gibt 500 zurück bei Datenbankfehler', async () => {
     vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
     mockSelect.mockReturnValue({
-      in: () => ({ data: null, error: { message: 'DB error' } }),
+      in: () => ({ limit: () => ({ data: null, error: { message: 'DB error' } }) }),
     })
 
     const res = await GET()
@@ -104,6 +104,22 @@ describe('POST /api/admin/whatsapp/config', () => {
     expect(res.status).toBe(400)
   })
 
+  it('gibt 400 zurück bei ungültigem E.164-Format (BUG-2 Regression)', async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
+    for (const invalid of ['abc', '+', '004989123456', '+0123']) {
+      const res = await POST(makeRequest('POST', { whatsapp_active_number: invalid }))
+      expect(res.status, `Erwartet 400 für "${invalid}"`).toBe(400)
+    }
+  })
+
+  it('gibt 400 zurück bei ungültigem Template-SID-Format (BUG-3 Regression)', async () => {
+    vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
+    for (const invalid of ['HXabc123', 'invalid', 'HX' + 'z'.repeat(32), 'HX' + 'a'.repeat(31)]) {
+      const res = await POST(makeRequest('POST', { whatsapp_template_sid_bestaetigung: invalid }))
+      expect(res.status, `Erwartet 400 für "${invalid}"`).toBe(400)
+    }
+  })
+
   it('gibt 400 zurück bei leerem Body (keine Felder)', async () => {
     vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
     const res = await POST(makeRequest('POST', {}))
@@ -133,15 +149,16 @@ describe('POST /api/admin/whatsapp/config', () => {
     vi.mocked(requireAdmin).mockResolvedValue(adminAuth)
     mockUpsert.mockResolvedValue({ error: null })
 
+    const validSid = 'HX' + 'a'.repeat(32)
     const res = await POST(makeRequest('POST', {
       whatsapp_active_number: '+4989987654',
-      whatsapp_template_sid_bestaetigung: 'HXnew123',
+      whatsapp_template_sid_bestaetigung: validSid,
     }))
     expect(res.status).toBe(200)
     expect(mockUpsert).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ key: 'whatsapp_active_number', value: '+4989987654' }),
-        expect.objectContaining({ key: 'whatsapp_template_sid_bestaetigung', value: 'HXnew123' }),
+        expect.objectContaining({ key: 'whatsapp_template_sid_bestaetigung', value: validSid }),
       ]),
       { onConflict: 'key' }
     )
