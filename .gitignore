@@ -38,3 +38,13 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# uploads (Foto-Dateien nicht in git — nur Verzeichnisstruktur behalten)
+/uploads/photos/*
+!/uploads/photos/.gitkeep
+/uploads/templates/*
+!/uploads/templates/.gitkeep
+
+# test artifacts
+/test-results/
+/playwright-report/
