@@ -1,22 +1,18 @@
-import { createClient } from '@supabase/supabase-js'
+/**
+ * Shared Supabase environment variables.
+ *
+ * This module is safe to import from both client and server code.
+ * - Browser client lives in `./supabase-browser.ts`
+ * - Server client (uses `next/headers`) lives in `./supabase-server.ts`
+ * - Service-role client (server-only) lives in `./supabase-service.ts`
+ * - Middleware client lives in `./supabase-middleware.ts`
+ *
+ * Keeping these in separate files prevents `next/headers` from leaking into
+ * the client bundle, which would otherwise cause a build error.
+ */
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!
+export const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
+export const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-// Browser / public client (uses anon key, subject to RLS)
-export const supabase = createClient(supabaseUrl, supabaseAnonKey)
-
-// Server client authenticated as a specific user (pass their JWT)
-export function createServerClient(accessToken: string) {
-  return createClient(supabaseUrl, supabaseAnonKey, {
-    global: { headers: { Authorization: `Bearer ${accessToken}` } },
-  })
-}
-
-// Service role client — bypasses RLS, only use server-side
-export function createServiceClient() {
-  return createClient(supabaseUrl, supabaseServiceKey, {
-    auth: { persistSession: false },
-  })
-}
+// Re-export the browser client so existing client components keep working.
+export { createBrowserClient } from './supabase-browser'
