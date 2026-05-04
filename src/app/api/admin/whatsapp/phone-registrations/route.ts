@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { createServiceClient } from '@/lib/supabase'
+import { createServiceClient } from '@/lib/supabase-service'
 import { requireAdmin } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'

@@ -3,6 +3,14 @@ import { NextRequest } from 'next/server'
 
 // --- Mocks ---
 
+// twilio muss auf Top-Level stehen, damit Vitest es korrekt hoisten kann
+const mockTwilioCreate = vi.fn()
+vi.mock('twilio', () => ({
+  default: vi.fn(() => ({
+    messages: { create: mockTwilioCreate },
+  })),
+}))
+
 const mockMaybeSingle = vi.fn()
 const mockInsertSelect = vi.fn()
 const mockInsert = vi.fn(() => ({ select: () => ({ single: mockInsertSelect }) }))
@@ -331,13 +339,7 @@ describe('POST /api/webhooks/twilio', () => {
 
   it('sendet Template-Nachricht im Produktions-Modus mit konfiguriertem SID', async () => {
     vi.mocked(validateTwilioSignature).mockReturnValue(true)
-
-    const mockCreate = vi.fn().mockResolvedValue({ sid: 'SM_template_1' })
-    vi.mock('twilio', () => ({
-      default: vi.fn(() => ({
-        messages: { create: mockCreate },
-      })),
-    }))
+    mockTwilioCreate.mockResolvedValue({ sid: 'SM_template_1' })
 
     process.env.TWILIO_PRODUCTION_ACCOUNT_SID = 'ACprod'
     process.env.TWILIO_PRODUCTION_AUTH_TOKEN = 'prodtoken'

@@ -14,14 +14,14 @@ const mockFrom = vi.fn(() => ({
   insert: vi.fn(() => ({ select: () => ({ single: mockInsertSelect }) })),
 }))
 
-vi.mock('@/lib/supabase', () => ({
+vi.mock('@/lib/supabase-service', () => ({
   createServiceClient: () => ({ from: mockFrom }),
 }))
 
 import { requireAdmin } from '@/lib/auth'
 import { GET, POST } from './route'
 
-const adminAuth = { ok: true as const, userId: 'admin-uuid', role: 'admin' }
+const adminAuth = { ok: true as const, userId: 'admin-uuid', email: 'admin@test.de', role: 'admin' }
 const unauthResult = { ok: false as const, error: 'Nicht authentifiziert', status: 401 }
 
 function makeRequest(method: string, body?: unknown) {
