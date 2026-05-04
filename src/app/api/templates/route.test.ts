@@ -60,7 +60,9 @@ describe('GET /api/templates', () => {
   it('gibt alle Templates als Array zurück (200)', async () => {
     vi.mocked(requireAuth).mockResolvedValue(userAuth)
     mockOrder.mockReturnValue({
-      order: vi.fn().mockResolvedValue({ data: [templateRow], error: null }),
+      order: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue({ data: [templateRow], error: null }),
+      }),
     })
     mockSelect.mockReturnValue({ order: mockOrder })
     mockFrom.mockReturnValue({ select: mockSelect })
@@ -76,7 +78,9 @@ describe('GET /api/templates', () => {
     vi.mocked(requireAuth).mockResolvedValue(userAuth)
     const withLogo = { ...templateRow, logo_pfad: 'uploads/templates/tpl-1/logo.png' }
     mockOrder.mockReturnValue({
-      order: vi.fn().mockResolvedValue({ data: [withLogo], error: null }),
+      order: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue({ data: [withLogo], error: null }),
+      }),
     })
     mockSelect.mockReturnValue({ order: mockOrder })
     mockFrom.mockReturnValue({ select: mockSelect })
@@ -89,7 +93,9 @@ describe('GET /api/templates', () => {
   it('gibt logo_url: null zurück wenn kein logo_pfad', async () => {
     vi.mocked(requireAuth).mockResolvedValue(userAuth)
     mockOrder.mockReturnValue({
-      order: vi.fn().mockResolvedValue({ data: [templateRow], error: null }),
+      order: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue({ data: [templateRow], error: null }),
+      }),
     })
     mockSelect.mockReturnValue({ order: mockOrder })
     mockFrom.mockReturnValue({ select: mockSelect })
@@ -102,7 +108,9 @@ describe('GET /api/templates', () => {
   it('gibt 500 bei Datenbankfehler zurück', async () => {
     vi.mocked(requireAuth).mockResolvedValue(userAuth)
     mockOrder.mockReturnValue({
-      order: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+      order: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue({ data: null, error: { message: 'DB error' } }),
+      }),
     })
     mockSelect.mockReturnValue({ order: mockOrder })
     mockFrom.mockReturnValue({ select: mockSelect })
@@ -114,7 +122,9 @@ describe('GET /api/templates', () => {
   it('Mitarbeiter (nicht Admin) kann Templates lesen', async () => {
     vi.mocked(requireAuth).mockResolvedValue(userAuth)
     mockOrder.mockReturnValue({
-      order: vi.fn().mockResolvedValue({ data: [templateRow], error: null }),
+      order: vi.fn().mockReturnValue({
+        limit: vi.fn().mockResolvedValue({ data: [templateRow], error: null }),
+      }),
     })
     mockSelect.mockReturnValue({ order: mockOrder })
     mockFrom.mockReturnValue({ select: mockSelect })
