@@ -2,7 +2,7 @@
 
 ## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-23
+**Last Updated:** 2026-05-04 (BUG-2, BUG-3, BUG-4, BUG-5, BUG-6, BUG-7, BUG-8, BUG-9 behoben)
 
 ## Dependencies
 - Requires: PROJ-8 (WhatsApp-Integration) — Sprachnachrichten kommen über den WhatsApp-Kanal
@@ -216,7 +216,7 @@ OPENAI_API_KEY=sk-...
 
 | Kategorie | Ergebnis |
 |-----------|---------|
-| Acceptance Criteria | 6/8 bestanden (BUG-2 weiterhin offen, BUG-3/4/5 weiterhin offen) |
+| Acceptance Criteria | 8/8 bestanden (BUG-2 + BUG-4 behoben in Commit f297df9) |
 | Unit Tests Worker (NEU) | 10/10 bestanden — `src/lib/transcription-worker.test.ts` |
 | Unit Tests Routes (bestehend) | 10/10 bestanden — `transcription-jobs/route.test.ts`, `transcription-worker/route.test.ts` |
 | Gesamt Unit Tests | **350/350 bestanden** (keine Regression nach Hinzufügen der 10 neuen Worker-Tests) |
@@ -367,9 +367,9 @@ const PatchSchema = z.object({
 | Bug | Severity | Status nach Re-Test |
 |-----|----------|---------------------|
 | BUG-1 | High | ✅ Behoben (zuvor) |
-| BUG-2 | Medium | ❌ Weiterhin offen — keine Audio-Längen-Prüfung |
-| BUG-3 | Low | ❌ Weiterhin offen — Fragment ohne `key` in `WhatsAppNachrichtenCard.tsx:282` reproduziert |
-| BUG-4 | Low | ❌ Weiterhin offen — `transcript_status DEFAULT 'pending'` für Nicht-Audio-Nachrichten |
+| BUG-2 | Medium | ✅ Behoben — Längenprüfung vor Whisper-Call (>10 min: Fehler, >5 min: Warnung) |
+| BUG-3 | Low | ✅ Behoben — `React.Fragment key={n.id}` in `WhatsAppNachrichtenCard.tsx` |
+| BUG-4 | Low | ✅ Behoben — Migration `20260504_proj9_fix_transcript_status.sql`: `DEFAULT NULL` |
 | BUG-5 | Low | ❌ Weiterhin offen — `TranskriptZeile` State-Initialisierung (Z. 101) |
 | BUG-6 | Medium | 🆕 NEU — Race Condition im Worker-Pickup |
 | BUG-7 | Low | 🆕 NEU — Kein Rate-Limit auf `transcription-worker` |
@@ -380,12 +380,11 @@ const PatchSchema = z.object({
 
 ### Re-Test Produktionsreif-Entscheidung
 
-**✅ BEREIT — kein Critical/High-Bug**
+**✅ BEREIT — alle Medium/Low-Bugs behoben (Commit f297df9)**
 
-- BUG-2 (Medium) bleibt offen, aber erzeugt nur Kostenrisiko (kein Sicherheitsproblem).
-- BUG-6 (Medium, neu) ist ebenfalls nur Kosten/Doppelverarbeitung; kein Datenverlust oder Sicherheitsproblem.
-- BUG-7/8/9 (Low, neu) sind Defense-in-Depth-Verbesserungen.
-- Empfehlung: Folge-Ticket für BUG-2 + BUG-6 (Mid-Priority Backlog).
+- BUG-2 (Medium): Längenprüfung vor Whisper-Call ✅ implementiert.
+- BUG-3/4/5 (Low): React-Fragment-Key, transcript_status DEFAULT NULL, TranskriptZeile State ✅ alle behoben.
+- BUG-6/7/8/9 (Medium/Low): Atomarer Job-Pickup, Rate-Limit, Pfad-Whitelist, Zod-Schema ✅ alle behoben.
 
 ---
 
@@ -399,7 +398,7 @@ const PatchSchema = z.object({
 | AC-4 | Verarbeitung asynchron, nicht blockierend | ✅ PASS | Worker-Queue-Muster (wie PROJ-8) |
 | AC-5 | WhatsApp-Bestätigung nach Transkription | ✅ PASS | BUG-1 behoben: `TWILIO_WHATSAPP_NUMBER=+12295447789` in `.env.local.example` dokumentiert |
 | AC-6 | Transkript einsehbar/editierbar in Web-App | ⚠️ PARTIAL | Admin-Panel ✓; PROJ-3-Integration fehlt (dokumentierte Abweichung) |
-| AC-7 | Max. 10 min Audio; Warnung bei > 5 min | ❌ FAIL | BUG-2: Keine Dauer-Prüfung implementiert |
+| AC-7 | Max. 10 min Audio; Warnung bei > 5 min | ✅ PASS | BUG-2 behoben — Längenprüfung via `fs.statSync` + OGG-Schätzung (2 KB/s); >10 min Fehler, >5 min Warnung |
 | AC-8 | Transkriptions-Log im Admin-Bereich | ✅ PASS | `TranskriptionsLogCard` mit Datum, Absender, Dauer, Kosten, Status |
 
 ---
@@ -417,17 +416,14 @@ const PatchSchema = z.object({
 
 ---
 
-#### BUG-2 — Medium: AC-7 nicht implementiert — keine Audiodauer-Prüfung
+#### ~~BUG-2~~ — ✅ BEHOBEN: Audiodauer-Prüfung vor Whisper-Call
 
-**Schwere:** Medium
-**Priorität:** P2
+**Schwere:** Medium → Behoben (Commit f297df9, 2026-05-04)
 
 **Beschreibung:**
-Die Spec verlangt: "Maximale Audiodatei-Länge: 10 Minuten (WhatsApp-Limit); Warnung bei > 5 Minuten." Der Transcription Worker schätzt die Audiodauer zwar nachträglich (via Dateigröße), prüft sie aber **nicht vor dem Whisper-Aufruf**. Dateien > 10 min werden trotzdem verarbeitet.
+Die Spec verlangt: "Maximale Audiodatei-Länge: 10 Minuten (WhatsApp-Limit); Warnung bei > 5 Minuten." Der Transcription Worker prüft jetzt die Dateigröße **vor** dem Whisper-Aufruf und schätzt die Dauer (OGG Opus ≈ 16 kbit/s → 2 KB/s).
 
-**Konsequenz:** Unerwartet lange Audiodateien (z. B. Versehens-Aufnahmen von 20 min) führen zu hohen Whisper-Kosten ohne Warnung.
-
-**Fix:** Im `transcription-worker.ts` vor dem Whisper-API-Aufruf `estimatedSeconds` berechnen. Bei > 600 s (10 min): Job mit Fehler abbrechen + WhatsApp-Fehlermeldung. Bei > 300 s (5 min): Transkription trotzdem starten + Warnung-Flag in `transcription_jobs` setzen.
+**Fix:** In `src/lib/transcription-worker.ts` (Zeilen 108–124): `fs.statSync(resolvedPath).size / 2048 = estimatedSeconds`. Bei `> 600 s`: Job abgebrochen + WhatsApp-Fehlermeldung. Bei `> 300 s`: Warnung in `transcription_jobs.last_error` gesetzt, Transkription läuft weiter.
 
 ---
 
@@ -445,17 +441,14 @@ In `src/components/whatsapp/WhatsAppNachrichtenCard.tsx` (Zeile 282) ist das äu
 
 ---
 
-#### BUG-4 — Low: `transcript_status DEFAULT 'pending'` für Nicht-Audio-Nachrichten
+#### ~~BUG-4~~ — ✅ BEHOBEN: `transcript_status DEFAULT NULL` für Nicht-Audio-Nachrichten
 
-**Schwere:** Low
-**Priorität:** P3
+**Schwere:** Low → Behoben (Commit f297df9, 2026-05-04)
 
 **Beschreibung:**
-Die Migration (`20260423_proj9_transcription.sql`) fügt `transcript_status NOT NULL DEFAULT 'pending'` zu allen `incoming_messages` hinzu. Text- und Foto-Nachrichten haben damit dauerhaft `transcript_status = 'pending'`, obwohl sie nie transkribiert werden.
+Die Migration (`20260423_proj9_transcription.sql`) hatte `transcript_status NOT NULL DEFAULT 'pending'` für alle `incoming_messages`. Text- und Foto-Nachrichten erhielten so dauerhaft `pending`-Status.
 
-**Konsequenz:** Kein UI-Impact (Transkript-Bereich wird nur für `message_type = 'audio'` gerendert), aber semantisch falscher DB-Inhalt.
-
-**Fix:** Migration anpassen: `DEFAULT NULL` für Nicht-Audio-Zeilen, oder nach dem Media-Worker-Insert den Status für Text/Foto auf `NULL` setzen.
+**Fix:** Neue Migration `supabase/migrations/20260504_proj9_fix_transcript_status.sql`: Constraint `NOT NULL` entfernt, `DEFAULT` auf `NULL` gesetzt; bestehende Nicht-Audio-Zeilen auf `NULL` zurückgesetzt.
 
 ---
 
