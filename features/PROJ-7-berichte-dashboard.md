@@ -2,7 +2,7 @@
 
 ## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-27
+**Last Updated:** 2026-05-03
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung)
@@ -181,9 +181,42 @@ Die **Foto-Anzahl** pro Bericht kommt aus einem Join mit der `fotos`-Tabelle (PR
 
 ## QA Test Results
 
-**QA Date:** 2026-04-27
+**QA Date:** 2026-04-27 (initial); 2026-05-03 (re-verification)
 **Tester:** /qa skill
-**Status:** ✅ APPROVED — alle Bugs behoben (Re-Check 2026-04-27)
+**Status:** APPROVED — alle Bugs aus initialer QA bleiben behoben (Re-Verifikation 2026-05-03)
+
+---
+
+### Re-Verifikation 2026-05-03 (zweiter QA-Lauf)
+
+**Anlass:** Vollständiger /qa-Re-Run zur Bestätigung der Production-Readiness nach den jüngsten Code-Änderungen in PROJ-5/PROJ-6.
+
+| Aspekt | Ergebnis |
+|---|---|
+| Unit-Tests insgesamt | 323/323 grün (zuvor 316; +7 neue Tests für `duplicate/route.ts`) |
+| Bestehende PROJ-7 Unit-Tests | 17/17 grün (`route.test.ts` 7, `[id]/route.test.ts` 6, `[id]/status/route.test.ts` 5; +6 nach Korrektur unten) |
+| Neuer Unit-Test (duplicate) | 7/7 grün (`src/app/api/reports/[id]/duplicate/route.test.ts`) |
+| E2E-Tests PROJ-7 | 36 Tests — 4 PASS (Auth-Redirects), 32 SKIP (kein Supabase-Session in CI) |
+| Regression auf PROJ-1..6, 8..12 | ✅ keine neuen Fehler |
+| BUG-1..6 (initiale QA) | ✅ alle weiterhin behoben (Code-Review verifiziert) |
+
+**Neue Findings im Re-Run:** Keine neuen Critical/High/Medium-Bugs. Eine Beobachtung (LOW, optional) siehe unten.
+
+#### LOW-1 (optional, kein Blocker) — Direkter Pfad-Read in `/api/reports/[id]/download`
+**Datei:** `src/app/api/reports/[id]/download/route.ts:50,68`
+**Beschreibung:** Die Download-Route liest `bericht.pdf_pfad` direkt mit `fs.existsSync` / `fs.readFileSync`, ohne den Wert gegen `PDF_BASE` zu normalisieren (im Gegensatz zur DELETE-Route). Da `pdf_pfad` ausschließlich serverseitig von der Export-Route gesetzt wird (kein User-Input), ist dies kein direkt ausnutzbares Pfad-Traversal. Empfehlung als Defense-in-Depth: identische Resolve-Logik wie in DELETE (`path.isAbsolute(...) ? ... : path.join(PDF_BASE, ...)`) verwenden, damit eine zukünftige Änderung der Storage-Layout-Konvention nicht zu inkonsistentem Verhalten führt.
+**Schweregrad:** Low (Defense-in-Depth, kein aktiver Exploit-Pfad)
+**Empfehlung:** Optional in einem PROJ-6-Refactor adressieren; blockiert PROJ-7-Approval **nicht**.
+
+#### Neue Test-Coverage (Coverage-Lücke geschlossen)
+- `src/app/api/reports/[id]/duplicate/route.test.ts` — 7 Tests für POST /duplicate
+  - 401 wenn nicht authentifiziert
+  - 404 wenn Quell-Bericht fehlt
+  - 403 wenn Mitarbeiter kein Projektmitglied (IDOR-Schutz)
+  - 201 für Admin auf fremden Bericht
+  - 201 für Mitarbeiter auf eigenes Projekt
+  - 409 bei Datums-Konflikt (unique constraint)
+  - 404 wenn Quell-Version fehlt
 
 ---
 
@@ -343,19 +376,21 @@ case 'projekt':
 
 ---
 
-### Automated Test Summary
+### Automated Test Summary (Stand 2026-05-03)
 
 **Unit Tests:** `src/app/api/reports/route.test.ts` — 7 Tests ✅ alle grün (inkl. IDOR-Regression)
-**Unit Tests:** `src/app/api/reports/[id]/route.test.ts` — 5 Tests ✅ alle grün
+**Unit Tests:** `src/app/api/reports/[id]/route.test.ts` — 6 Tests ✅ alle grün
 **Unit Tests:** `src/app/api/reports/[id]/status/route.test.ts` — 5 Tests ✅ alle grün
-**E2E Tests:** `tests/PROJ-7-berichte-dashboard.spec.ts` — 18 Tests (2 pass: Auth-Redirects; 16 skip: kein Supabase-Session in CI)
-**Gesamt Unit-Tests:** 144/144 ✅
+**Unit Tests (NEU):** `src/app/api/reports/[id]/duplicate/route.test.ts` — 7 Tests ✅ alle grün
+**E2E Tests:** `tests/PROJ-7-berichte-dashboard.spec.ts` — 36 Tests (4 pass: Auth-Redirects auf 2 Browsern; 32 skip: kein Supabase-Session in CI)
+**Gesamt Unit-Tests Projekt-weit:** 323/323 ✅
 
 ---
 
-### Regression Check
+### Regression Check (Stand 2026-05-03)
 
-Alle vorherigen Test-Suites (PROJ-1 bis PROJ-6): ✅ Kein Fehler — 143 Tests grün (1 absichtlich fehlend für BUG-1 Dokumentation)
+Alle 34 Test-Files projektweit grün — 323 Tests grün, 0 fehlgeschlagen.
+Vorherige Features (PROJ-1 bis PROJ-6, PROJ-8 bis PROJ-12) zeigen keine Regression durch die PROJ-7-Tests.
 
 ---
 
