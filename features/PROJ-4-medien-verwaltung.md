@@ -368,7 +368,7 @@ const [begehungId, setBegehungId] = useState<string>(foto?.begehung_id ?? KEINE_
 | Authentifizierung | Alle 6 API-Endpunkte prüfen Auth via `requireAuth()` | ✅ OK |
 | Datei-Auslieferung | `/api/media/file/[id]` prüft Auth + Projektmitgliedschaft | ✅ OK |
 | Path-Traversal | UUID-Validierung verhindert Directory-Traversal | ✅ OK |
-| Begehungs-Zuordnung (Upload) | Keine Projektzugehörigkeitsprüfung bei `begehung_id` | ⚠️ BUG-004 offen |
+| Begehungs-Zuordnung (Upload) | Projektzugehörigkeitsprüfung für `begehung_id` im Upload-Endpunkt | ✅ BUG-004 behoben |
 | Rate-Limiting KI | In-Memory-Map (reset bei Server-Neustart) — akzeptabel für kleines Team | ✅ OK |
 | Alle weiteren Bereiche | Unverändert OK seit Re-Test 2026-04-26 | ✅ OK |
 
