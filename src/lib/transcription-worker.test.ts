@@ -91,21 +91,40 @@ function makeQueryBuilder(tableName: string) {
         }),
       }),
     }),
-    update: (patch: Record<string, unknown>) => ({
-      eq: (col: string, val: string) => {
-        if (tableName === 'transcription_jobs' && col === 'id') {
-          const j = dbState.transcription_jobs.find((x) => x.id === val)
-          if (j) Object.assign(j, patch)
+    update: (patch: Record<string, unknown>) => {
+      const filters: Record<string, unknown> = {}
+
+      function applyUpdate() {
+        if (tableName === 'transcription_jobs') {
+          const j = dbState.transcription_jobs.find((x) =>
+            Object.entries(filters).every(([col, val]) => (x as Record<string, unknown>)[col] === val)
+          )
+          if (j) { Object.assign(j, patch); return j }
+          return null
         }
-        if (tableName === 'incoming_messages' && col === 'id') {
-          dbState.incoming_messages[val] = {
-            ...(dbState.incoming_messages[val] ?? {}),
-            ...patch,
-          }
+        if (tableName === 'incoming_messages' && filters['id']) {
+          const id = filters['id'] as string
+          dbState.incoming_messages[id] = { ...(dbState.incoming_messages[id] ?? {}), ...patch }
         }
-        return Promise.resolve({ error: null })
-      },
-    }),
+        return null
+      }
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const builder: any = {
+        eq: (col: string, val: unknown) => { filters[col] = val; return builder },
+        select: (_cols?: string) => ({
+          single: () => {
+            const result = applyUpdate()
+            return result
+              ? Promise.resolve({ data: { id: (result as Job).id }, error: null })
+              : Promise.resolve({ data: null, error: { message: 'not found' } })
+          },
+        }),
+        then: (resolve: (v: { error: null }) => unknown, reject?: (r: unknown) => unknown) =>
+          Promise.resolve({ error: null }).then(() => { applyUpdate(); return { error: null } }).then(resolve, reject),
+      }
+      return builder
+    },
     insert: (row: { incoming_message_id: string }) => {
       if (tableName === 'assignment_jobs') {
         dbState.assignment_jobs.push(row)
@@ -136,6 +155,7 @@ describe('runTranscriptionIteration', () => {
     resetDb()
     process.env.TWILIO_WHATSAPP_NUMBER = '+12295447789'
     process.env.OPENAI_API_KEY = 'sk-test'
+    process.env.MEDIA_UPLOAD_PATH = '/tmp'
   })
 
   it('verarbeitet einen pending-Job: Whisper + DB-Update + WhatsApp-Bestätigung', async () => {
@@ -392,9 +412,8 @@ describe('runTranscriptionIteration', () => {
     expect(dbState.incoming_messages['msg-twilio-err']?.transcript).toBe('Funktioniert')
   })
 
-  it('AC-7 (Audio-Dauer Prüfung): KEINE Längenprüfung vor Whisper-Aufruf — BUG-2 dokumentiert', async () => {
-    // 30 min Audio (90 KB / 2 KB/s = 45 s laut Schätzung — Schätzfehler bei langen Dateien zeigt Lücke)
-    // Wir simulieren eine 12-min-Datei ≈ 720 s × 2048 = 1.474.560 bytes
+  it('AC-7: Audiodatei > 10 min wird abgelehnt, Whisper NICHT aufgerufen (BUG-2 behoben)', async () => {
+    // 12-min-Datei ≈ 720 s × 2048 = 1.474.560 bytes
     dbState.transcription_jobs.push({
       id: 'job-long-audio',
       incoming_message_id: 'msg-long-audio',
@@ -408,19 +427,43 @@ describe('runTranscriptionIteration', () => {
     })
     mockFsExistsSync.mockReturnValue(true)
     mockFsStatSync.mockReturnValue({ size: 1_474_560 } as unknown as never)
-    mockFsReadFile.mockResolvedValue(Buffer.from('a'))
-    mockTranscriptionsCreate.mockResolvedValue({ text: 'Sehr lange Aufnahme' })
 
     const { runTranscriptionIteration } = await import('./transcription-worker')
     const result = await runTranscriptionIteration()
 
-    // BUG-2: Whisper wird trotz > 10 min Audio aufgerufen
-    expect(mockTranscriptionsCreate).toHaveBeenCalled()
-    expect(result.processed).toBe(1)
+    // Whisper darf NICHT aufgerufen werden
+    expect(mockTranscriptionsCreate).not.toHaveBeenCalled()
+    expect(result.failed).toBe(1)
     const job = dbState.transcription_jobs.find((j) => j.id === 'job-long-audio')
-    // Geschätzte Dauer > 600 s
-    expect((job?.duration_seconds ?? 0)).toBeGreaterThan(600)
-    // Aber kein Abbruch oder Warnung-Flag
+    expect(job?.last_error).toContain('zu lang')
+  })
+
+  it('AC-7: Audiodatei zwischen 5–10 min wird transkribiert, aber Warnung gesetzt', async () => {
+    // 7-min-Datei ≈ 420 s × 2048 = 860.160 bytes
+    dbState.transcription_jobs.push({
+      id: 'job-warn-audio',
+      incoming_message_id: 'msg-warn-audio',
+      attempts: 0,
+      status: 'pending',
+      incoming_messages: {
+        local_file_path: '/tmp/7min.ogg',
+        sender_phone: '+4917699900000',
+        transcript_status: 'pending',
+      },
+    })
+    mockFsExistsSync.mockReturnValue(true)
+    mockFsStatSync.mockReturnValue({ size: 860_160 } as unknown as never)
+    mockFsReadFile.mockResolvedValue(Buffer.from('a'))
+    mockTranscriptionsCreate.mockResolvedValue({ text: 'Lange aber erlaubte Aufnahme' })
+    mockTwilioMessagesCreate.mockResolvedValue({ sid: 'SM-warn' })
+
+    const { runTranscriptionIteration } = await import('./transcription-worker')
+    const result = await runTranscriptionIteration()
+
+    expect(result.processed).toBe(1)
+    expect(mockTranscriptionsCreate).toHaveBeenCalled()
+    const job = dbState.transcription_jobs.find((j) => j.id === 'job-warn-audio')
     expect(job?.status).toBe('done')
+    expect(job?.last_error).toContain('Warnung')
   })
 })
