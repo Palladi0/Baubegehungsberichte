@@ -2,7 +2,7 @@
 
 ## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-30
+**Last Updated:** 2026-04-30 (Bug-Fixes)
 
 ## Dependencies
 - Requires: PROJ-1 (Authentifizierung) — nur eingeloggte Admins können Projekte anlegen/verwalten
@@ -131,13 +131,13 @@ Next.js App
 
 | Bug | Severity | Status (2026-04-30) | Notiz |
 |-----|----------|---------------------|-------|
-| BUG-001 | Medium | **OFFEN** | `src/app/admin/projekte/[id]/page.tsx` zeigt weiterhin keine Begehungs-Anzahl. API liefert auch kein `begehungen_count`. |
+| BUG-001 | Medium | **BEHOBEN** ✅ | `src/app/admin/projekte/[id]/page.tsx`: Supabase-Count-Query auf `begehungen WHERE projekt_id = id`; Anzeige mit Icon im Seiten-Header. |
 | BUG-002 | High | **BEHOBEN** ✅ | `src/app/api/begehungen/route.ts` Z. 118–133: `archived_at`-Check bestätigt. Gibt 422 zurück. |
-| BUG-003 | Low | **OFFEN** | `src/middleware.ts` Z. 118: Redirect zu `/` bestätigt (statt `/projekte`). |
-| BUG-004 | Low | **OFFEN** | `isRateLimitedPath()` prüft nur `/api/auth/` und `/login POST` — Projekt-Mutationen ungeschützt. |
-| BUG-005 | Low | **OFFEN** | `PUT /api/admin/projekte/[id]` enthält keine `archived_at`-Prüfung (Z. 82–144 bestätigt). |
-| BUG-006 | Low | **OFFEN** | `.limit(500)` in beiden List-Endpunkten, keine Pagination. |
-| BUG-007 | Low | **OFFEN** | `mitarbeiter_anzahl` in API vorhanden; in `ProjektlisteCard.tsx` Tabelle nicht angezeigt. |
+| BUG-003 | Low | **BEHOBEN** ✅ | `src/middleware.ts`: Redirect für Nicht-Admin-Nutzer von `/` auf `/projekte` geändert. |
+| BUG-004 | Low | **BEHOBEN** ✅ | `src/middleware.ts`: `checkRateLimitMutation()` (30 req/min) für alle POST/PUT/PATCH/DELETE auf `/api/admin/projekte`. |
+| BUG-005 | Low | **BEHOBEN** ✅ | `src/app/api/admin/projekte/[id]/route.ts` PUT: Prüft `archived_at` vor Update; gibt 409 zurück wenn archiviert. |
+| BUG-006 | Low | **OFFEN** (akzeptiert) | `.limit(500)` in List-Endpunkten; Pagination erst bei Wachstum > 500 Projekte relevant. |
+| BUG-007 | Low | **BEHOBEN** ✅ | `src/components/projekte/ProjektlisteCard.tsx`: Neue Spalte „Team" mit `Users`-Icon und `mitarbeiter_anzahl`. |
 
 #### Neue E2E-Tests
 
