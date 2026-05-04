@@ -307,9 +307,9 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 
 ## QA Test Results
 
-**QA-Datum:** 2026-04-28 (Re-QA nach Bug-Fixes: 2026-04-28)
+**QA-Datum:** 2026-04-28 (Re-QA nach Bug-Fixes: 2026-04-28) (Re-QA Vollprüfung: 2026-05-04)
 **Tester:** /qa (Claude)
-**Ergebnis:** ✅ APPROVED — alle 4 Bugs behoben, keine offenen Bugs
+**Ergebnis:** ✅ APPROVED — keine neuen Bugs gefunden, alle Acceptance Criteria bestehen
 
 ### Acceptance Criteria — Testergebnisse
 
@@ -372,11 +372,14 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 
 | Test-Suite | Anzahl | Ergebnis |
 |-----------|--------|---------|
-| Vitest Unit/Integration | 197 Tests gesamt | ✅ alle grün |
-| Playwright E2E PROJ-10 | 13 Tests (1 pass, 12 skip*) | ✅ |
-| Regression (alle Tests) | 197 | ✅ keine Regressionen |
+| Vitest Unit/Integration | 351 Tests gesamt (39 Dateien) | ✅ alle grün |
+| PROJ-10 Unit-Tests spezifisch | 37 Tests | ✅ alle grün |
+| Playwright E2E PROJ-10 | 26 Tests (2 pass, 24 skip*) | ✅ |
+| Regression (alle Tests) | 351 | ✅ keine Regressionen |
 
 *E2E-Tests skippen wenn keine Supabase-Session vorhanden (identisches Verhalten wie PROJ-8/9)
+
+**Hinweis Re-QA 2026-05-04:** Seit der letzten QA (2026-04-28) wurden PROJ-11-Tests in `twilio/route.test.ts` ergänzt. PROJ-10-Logik (ClarificationCheck, Assignment Jobs, etc.) bleibt unverändert. Alle 11 Webhook-Tests bestehen inkl. der neuen PROJ-11-Tests.
 
 ### Neue Test-Dateien
 - `src/lib/assignment-worker.test.ts` — `extractHashtags`, `hasPendingClarification`, `resolveWithClarification`
@@ -389,7 +392,7 @@ Keine — alle nötigen Variablen (Twilio Auth, Supabase Service Role) sind bere
 
 ### Produktions-Bereitschaft
 
-**Entscheidung: APPROVED** — Alle 4 Bugs wurden behoben und durch neue Tests verifiziert. 197/197 Vitest-Tests grün. Kein offener Bug mehr.
+**Entscheidung: APPROVED** — Alle 4 Bugs wurden behoben und durch neue Tests verifiziert. 351/351 Vitest-Tests grün (Re-QA 2026-05-04). Kein offener Bug.
 
 ## Deployment
 _To be added by /deploy_
