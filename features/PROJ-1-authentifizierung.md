@@ -2,7 +2,7 @@
 
 ## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-22
+**Last Updated:** 2026-05-04 (BUG-003 behoben)
 
 ## Dependencies
 - None
@@ -235,7 +235,7 @@ Zod und react-hook-form (bereits im Stack) werden für Formular-Validierung eing
 | SQL Injection | ✅ PASS | Supabase verwendet parametrisierte Abfragen intern; alle Inputs Zod-validiert |
 | Deaktivierter Nutzer wird abgewiesen | ✅ PASS | `requireAuth()` prüft `aktiv`; Login-Route doppelt abgesichert; Unit-Test bestätigt |
 | Admin kann eigenen Account nicht deaktivieren | ✅ PASS | Guard in `PATCH /api/admin/benutzer/[id]`; Unit-Test: gibt 400 + Fehlermeldung |
-| Security Headers (X-Frame-Options, NOSNIFF etc.) | ❌ FEHLT | Middleware setzt keine HTTP-Security-Header — **BUG-003** |
+| Security Headers (X-Frame-Options, NOSNIFF etc.) | ✅ PASS | `addSecurityHeaders()` in `middleware.ts` setzt alle 4 Header (X-Frame-Options, X-Content-Type-Options, Referrer-Policy, HSTS) — **BUG-003 behoben** |
 | Secrets in Code | ✅ PASS | Alle Credentials über `process.env`, kein Hardcoding |
 | Passwort-Hashing | ✅ PASS | Supabase GoTrue übernimmt bcrypt intern |
 
@@ -266,14 +266,12 @@ Zod und react-hook-form (bereits im Stack) werden für Formular-Validierung eing
 - **Datei:** [src/middleware.ts](src/middleware.ts) Z.6–30
 - **Hinweis:** Für den Einsatz auf Single-VPS (wie laut PRD geplant) ist das aktuelle Verhalten ausreichend
 
-#### BUG-003: Fehlende HTTP-Security-Header
-- **Severity:** Low
+#### ~~BUG-003~~ — ✅ BEHOBEN: HTTP-Security-Header ergänzt
+- **Severity:** Low → Behoben
 - **Acceptance Criterion:** Technische Anforderung (security.md)
-- **Beschreibung:** Die Middleware setzt keine Standard-Security-Header. Laut `.claude/rules/security.md` sind `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` und `Strict-Transport-Security` erforderlich.
-- **Steps to Reproduce:** `curl -I https://app.example.com/login` — Security-Header fehlen in der Response
-- **Expected:** Alle vier Header gesetzt
-- **Actual:** Keiner der Header vorhanden
-- **Datei:** [src/middleware.ts](src/middleware.ts) (Ergänzung in der Response nötig)
+- **Beschreibung:** Die Middleware hatte keine Standard-Security-Header gesetzt. Laut `.claude/rules/security.md` sind `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy` und `Strict-Transport-Security` erforderlich.
+- **Fix:** `addSecurityHeaders(response: NextResponse)` in `src/middleware.ts` hinzugefügt; wird bei jedem Response-Pfad aufgerufen (Rate-Limit 429, Auth-Redirect, Normale Response).
+- **Datei:** [src/middleware.ts](src/middleware.ts)
 
 ---
 

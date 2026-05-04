@@ -1,21 +1,25 @@
-import type { Metadata } from "next";
-import "./globals.css";
+import type { Metadata } from 'next'
+import './globals.css'
+import { Navigation } from '@/components/layout/Navigation'
+import { Toaster } from '@/components/ui/sonner'
 
 export const metadata: Metadata = {
-  title: "AI Coding Starter Kit",
-  description: "Built with AI Agent Team System",
-};
+  title: 'Baubegehungsberichte',
+  description: 'KI-gestütztes Berichtstool für Baustellenbegehungen',
+}
 
 export default function RootLayout({
   children,
 }: Readonly<{
-  children: React.ReactNode;
+  children: React.ReactNode
 }>) {
   return (
-    <html lang="en">
+    <html lang="de">
       <body className="antialiased">
+        <Navigation />
         {children}
+        <Toaster />
       </body>
     </html>
-  );
+  )
 }

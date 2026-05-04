@@ -94,7 +94,7 @@ describe('POST /api/auth/login', () => {
     expect(body.error).toContain('deaktiviert')
   })
 
-  it('gibt 403 mit Countdown zurück wenn Account gesperrt', async () => {
+  it('gibt 401 mit generischer Fehlermeldung zurück wenn Account gesperrt (kein User-Enumeration)', async () => {
     const futureDate = new Date(Date.now() + 10 * 60 * 1000).toISOString()
     mockListUsers.mockResolvedValue({ data: { users: [knownUser] } })
     mockFrom.mockReturnValue(
@@ -102,10 +102,9 @@ describe('POST /api/auth/login', () => {
     )
 
     const res = await POST(makeRequest({ email: knownUser.email, passwort: 'Passwort123' }))
-    expect(res.status).toBe(403)
+    expect(res.status).toBe(401)
     const body = await res.json()
-    expect(body.error).toContain('gesperrt')
-    expect(body.error).toContain('Minute')
+    expect(body.error).toBe('E-Mail oder Passwort ungültig.')
   })
 
   it('inkrementiert Fehlversuche bei falschem Passwort (bekannte E-Mail)', async () => {
