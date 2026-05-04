@@ -6,8 +6,8 @@ import { requireAuth } from '@/lib/auth'
 export const dynamic = 'force-dynamic'
 
 const TeilnehmerSchema = z.object({
-  name: z.string().min(1),
-  rolle: z.string().default(''),
+  name: z.string().min(1).max(200),
+  rolle: z.string().max(100).default(''),
 })
 
 const BegehungSchema = z.object({
@@ -19,10 +19,10 @@ const BegehungSchema = z.object({
     .nullable()
     .optional(),
   temperatur: z.number().nullable().optional(),
-  leistungsstand: z.string().nullable().optional(),
-  vorkommnisse: z.string().nullable().optional(),
-  massnahmen: z.string().nullable().optional(),
-  bemerkungen: z.string().nullable().optional(),
+  leistungsstand: z.string().max(10_000).nullable().optional(),
+  vorkommnisse: z.string().max(10_000).nullable().optional(),
+  massnahmen: z.string().max(10_000).nullable().optional(),
+  bemerkungen: z.string().max(10_000).nullable().optional(),
   status: z.enum(['Entwurf', 'Fertig']).default('Entwurf'),
   teilnehmer: z.array(TeilnehmerSchema).default([]),
 })

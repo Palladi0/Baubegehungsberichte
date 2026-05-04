@@ -116,9 +116,13 @@ export function BegehungsFormular({ begehungId, initialDaten, projekte }: Begehu
   const formDatenRef = useRef(formDaten)
   formDatenRef.current = formDaten
 
-  // Autosave alle 60 Sekunden in localStorage
+  const hatAenderungenRef = useRef(hatAenderungen)
+  hatAenderungenRef.current = hatAenderungen
+
+  // Autosave alle 60 Sekunden in localStorage (nur wenn Änderungen vorliegen)
   useEffect(() => {
     const interval = setInterval(() => {
+      if (!hatAenderungenRef.current) return
       try {
         localStorage.setItem(STORAGE_KEY, JSON.stringify(formDatenRef.current))
         setLetzteAutosave(new Date())
@@ -128,6 +132,30 @@ export function BegehungsFormular({ begehungId, initialDaten, projekte }: Begehu
     }, 60_000)
     return () => clearInterval(interval)
   }, [STORAGE_KEY])
+
+  // Im Bearbeiten-Modus: lokalen Entwurf anbieten, falls vorhanden
+  useEffect(() => {
+    if (!isBearbeiten) return
+    try {
+      const gespeichert = localStorage.getItem(STORAGE_KEY)
+      if (!gespeichert) return
+      const entwurf = JSON.parse(gespeichert) as BegehungFormData
+      toast.info('Lokaler Entwurf gefunden.', {
+        action: {
+          label: 'Wiederherstellen',
+          onClick: () => {
+            setFormDaten(entwurf)
+            setHatAenderungen(true)
+            toast.success('Lokaler Entwurf wiederhergestellt.')
+          },
+        },
+        duration: 10_000,
+      })
+    } catch {
+      // Ignorieren
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   // Verlassen-Schutz
   useEffect(() => {
@@ -328,11 +356,6 @@ export function BegehungsFormular({ begehungId, initialDaten, projekte }: Begehu
           return
         }
 
-        if (body.duplikatWarnung) {
-          setDuplikatWarnung(true)
-          toast.warning('Es existiert bereits eine Begehung für dieses Projekt an diesem Datum.')
-        }
-
         try {
           localStorage.removeItem(STORAGE_KEY)
         } catch {
@@ -340,6 +363,13 @@ export function BegehungsFormular({ begehungId, initialDaten, projekte }: Begehu
         }
 
         setHatAenderungen(false)
+
+        if (body.duplikatWarnung) {
+          setDuplikatWarnung(true)
+          toast.warning('Es existiert bereits eine Begehung für dieses Projekt an diesem Datum.')
+          return
+        }
+
         toast.success(
           zielStatus === 'Fertig'
             ? 'Begehung als "Fertig" gespeichert.'
@@ -473,7 +503,7 @@ export function BegehungsFormular({ begehungId, initialDaten, projekte }: Begehu
             </Button>
             {!wetterAbrufAktiv && (
               <p className="mt-1.5 text-xs text-muted-foreground">
-                Projekt mit Adresse sowie Datum und Uhrzeit erforderlich.
+                Projekt mit Adresse oder Koordinaten sowie Datum und Uhrzeit erforderlich.
               </p>
             )}
           </div>

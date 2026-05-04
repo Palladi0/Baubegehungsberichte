@@ -330,11 +330,11 @@ Bright Sky und Nominatim benötigen keine Client-Pakete — beide werden via ein
 | ID | Severity | Titel | Schritte | Datei |
 |----|----------|-------|----------|-------|
 | ~~BUG-001~~ | ~~High~~ | ~~Duplikat-Warnung wird nie angezeigt~~ | **Behoben 2026-04-25:** `toast.warning()` wird jetzt vor dem Redirect gefeuert — Sonner-Toast bleibt seitenübergreifend sichtbar. | `BegehungsFormular.tsx` |
-| BUG-002 | **Medium** | Autosave-Wiederherstellung funktioniert nicht im Bearbeiten-Modus | 1. Begehung B bearbeiten unter `/begehungen/[id]/bearbeiten`. 2. Felder ändern (Autosave schreibt alle 60 Sek. nach localStorage). 3. Tab schließen und wieder öffnen. 4. Formular zeigt Server-Stand, nicht den localStorage-Entwurf. | `BegehungsFormular.tsx:72–99` |
-| BUG-003 | **Medium** | Fehlende Längenbeschränkungen für Textfelder in API-Schemas | Authentifizierter Nutzer sendet extrem langen Text (~10 MB) an `POST /api/begehungen`. Kein `max()`-Limit in `BegehungSchema`. | `route.ts:22–28`, `[id]/route.ts:19–28` |
-| BUG-004 | **Medium** | PUT erlaubt Zuordnung zu archiviertem Projekt via API | Direkter `PUT /api/begehungen/[id]`-Aufruf mit `projekt_id` eines archivierten Projekts. Server akzeptiert es ohne Archivierungs-Check. | `[id]/route.ts:92–158` |
+| ~~BUG-002~~ | ~~Medium~~ | ~~Autosave-Wiederherstellung funktioniert nicht im Bearbeiten-Modus~~ | **Behoben 2026-05-03:** `useEffect` nach Mount prüft localStorage; falls Entwurf vorhanden, erscheint Sonner-Toast „Lokaler Entwurf gefunden" mit Action-Button „Wiederherstellen" (10 Sek. sichtbar). | `BegehungsFormular.tsx` |
+| ~~BUG-003~~ | ~~Medium~~ | ~~Fehlende Längenbeschränkungen für Textfelder in API-Schemas~~ | **Behoben 2026-05-03:** Textfelder (leistungsstand, vorkommnisse, massnahmen, bemerkungen) `.max(10_000)`; Teilnehmer name `.max(200)`, rolle `.max(100)` — in `BegehungSchema` und `BegehungUpdateSchema`. | `route.ts`, `[id]/route.ts` |
+| ~~BUG-004~~ | ~~Medium~~ | ~~PUT erlaubt Zuordnung zu archiviertem Projekt via API~~ | **Behoben 2026-05-03:** Vor dem Update wird `projekt_id` gegen `projekte.archived_at` geprüft; archivierte Projekte → 422. | `[id]/route.ts` |
 | ~~BUG-005~~ | ~~Critical~~ | ~~Kein Rate Limiting auf `/api/begehungen/extract`~~ | **Behoben 2026-04-25:** Sliding-Window 20/Stunde/Nutzer in `extract/route.ts`; 429 + `Retry-After`-Header; Frontend-Toast für 429. | `extract/route.ts` |
-| BUG-006 | **Low** | Irreführender Hint-Text beim Wetterdaten-Button | Button-Hint sagt „Projekt mit Adresse … erforderlich" — Button wird aber auch aktiv wenn nur lat/lon-Koordinaten gesetzt sind (ohne Adresse). | `BegehungsFormular.tsx:469–473` |
+| ~~BUG-006~~ | ~~Low~~ | ~~Irreführender Hint-Text beim Wetterdaten-Button~~ | **Behoben 2026-05-03:** Text lautet jetzt „Projekt mit Adresse oder Koordinaten sowie Datum und Uhrzeit erforderlich." | `BegehungsFormular.tsx` |
 
 ---
 
