@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { createServiceClient } from '@/lib/supabase-service'
 import { requireAdmin } from '@/lib/auth'
+import { createServiceClient } from '@/lib/supabase-service'
 
 export const dynamic = 'force-dynamic'
 
@@ -14,8 +14,9 @@ export async function GET(request: NextRequest) {
   const { data, error } = await db
     .from('incoming_messages')
     .select(
-      'id, twilio_message_sid, sender_phone, user_id, message_type, text_content, local_file_path, transcript, transcript_status, status, received_at, processed_at, error_message'
+      'id, sender_phone, message_type, text_content, transcript, received_at, assignment_status, clarification_attempts'
     )
+    .in('assignment_status', ['pending', 'awaiting_clarification', 'manual_required', 'failed'])
     .order('received_at', { ascending: false })
     .limit(100)
 

@@ -101,6 +101,12 @@ function TranskriptZeile({ nachricht }: { nachricht: IncomingMessage }) {
   const [text, setText] = useState(nachricht.transcript ?? '')
   const [isSpeichern, setIsSpeichern] = useState(false)
 
+  useEffect(() => {
+    if (!bearbeitungsModus) {
+      setText(nachricht.transcript ?? '')
+    }
+  }, [nachricht.transcript, bearbeitungsModus])
+
   const speichern = async () => {
     setIsSpeichern(true)
     try {
@@ -324,7 +330,7 @@ export function WhatsAppNachrichtenCard() {
                       </TableCell>
                     </TableRow>
                     {n.message_type === 'audio' && aufgeklappt.has(n.id) && (
-                      <TranskriptZeile key={`${n.id}-${n.transcript ?? ''}`} nachricht={n} />
+                      <TranskriptZeile nachricht={n} />
                     )}
                   </Fragment>
                 ))}
