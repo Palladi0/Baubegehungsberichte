@@ -206,6 +206,189 @@ OPENAI_API_KEY=sk-...
 
 ---
 
+## QA Re-Test (2026-05-03)
+
+**Tester:** /qa (Re-Test, automatisiert)
+**Getestete Umgebung:** Development (localhost:3000)
+**Anlass:** Vollständige Wiederholung aller Acceptance Criteria + erweiterter Security-Audit
+
+### Re-Test Übersicht
+
+| Kategorie | Ergebnis |
+|-----------|---------|
+| Acceptance Criteria | 6/8 bestanden (BUG-2 weiterhin offen, BUG-3/4/5 weiterhin offen) |
+| Unit Tests Worker (NEU) | 10/10 bestanden — `src/lib/transcription-worker.test.ts` |
+| Unit Tests Routes (bestehend) | 10/10 bestanden — `transcription-jobs/route.test.ts`, `transcription-worker/route.test.ts` |
+| Gesamt Unit Tests | **350/350 bestanden** (keine Regression nach Hinzufügen der 10 neuen Worker-Tests) |
+| E2E Tests (Playwright) | 2/2 bestanden in Chromium + Mobile Safari (32 skipped — Auth-Mock nicht durchgängig) |
+| Sicherheitsaudit | 0 kritische Befunde, 2 neue Medium-Hinweise (s. unten) |
+| **Produktionsreif** | **JA** — keine neuen Critical/High-Bugs |
+
+### Neue Unit-Test-Coverage
+
+`src/lib/transcription-worker.test.ts` (NEU, 10 Tests, alle grün):
+
+1. Verarbeitet pending-Job vollständig: Whisper + DB-Update + WhatsApp-Bestätigung + Assignment-Job
+2. Verwendet `language: "de"` beim Whisper-Aufruf (verifiziert AC-2)
+3. Berechnet Kosten via $0.006/min korrekt (60 KB → 30 s → $0.003)
+4. Fehler-Pfad: bei fehlender Datei → retry, status bleibt `pending`
+5. Endgültiger Fehler nach 3 Versuchen → WhatsApp-Fehlermeldung an Absender
+6. Überspringt Jobs ohne `local_file_path`
+7. Whisper-API-Fehler löst Retry-Mechanismus aus
+8. Vorschau im Bestätigungstext: max. 100 Zeichen + Auslassungspunkte
+9. Twilio-Bestätigungs-Fehler bricht Verarbeitung **nicht** ab (graceful degradation)
+10. AC-7-Lücke dokumentiert: Worker ruft Whisper auch bei > 10 min Audio auf (BUG-2 reproduziert)
+
+### Acceptance-Criteria-Status (Re-Test)
+
+| AC | Kriterium | Status | Anmerkung |
+|----|-----------|--------|-----------|
+| AC-1 | Sprachnachrichten an Whisper API | ✅ PASS | Worker lädt + sendet, Format `audio/ogg` |
+| AC-2 | Sprache fix `de` | ✅ PASS | Verifiziert via Unit-Test (`expect.objectContaining({ language: 'de' })`) |
+| AC-3 | Transkript in `incoming_messages.transcript` gespeichert | ✅ PASS | Verifiziert via DB-Mock-Update |
+| AC-4 | Asynchrone Verarbeitung | ✅ PASS | Job-Queue-Pattern, Webhook bleibt nicht-blockierend |
+| AC-5 | WhatsApp-Bestätigung mit „✓ Nachricht transkribiert: [erste 100 Zeichen]…" | ✅ PASS | Body-Format verifiziert in Unit-Test |
+| AC-6 | Transkript einsehbar/editierbar in Web-App | ⚠️ PARTIAL | Admin-Panel ✓ (PATCH-Endpunkt + UI), PROJ-3-Integration weiterhin offen |
+| AC-7 | Max. 10 min Audio; Warnung bei > 5 min | ❌ FAIL | **BUG-2 weiterhin offen** — keine Längenprüfung vor Whisper-Call |
+| AC-8 | Transkriptions-Log mit Datum, Dauer, Status, Kosten | ✅ PASS | `TranskriptionsLogCard` zeigt alle Spalten + Gesamtkosten |
+
+### Edge-Cases Re-Test
+
+| Edge-Case | Status | Anmerkung |
+|-----------|--------|-----------|
+| Korrupte Audio-Datei → WhatsApp-Fehlermeldung an Absender | ✅ PASS | Verifiziert in Unit-Test #5 |
+| Whisper-API nicht verfügbar → Retry max. 3x | ✅ PASS | Verifiziert in Unit-Test #4, #7 |
+| Audio nicht auf Deutsch | ⚠️ Akzeptabel | Spec: „Transkription versucht trotzdem" — kein Fallback nötig |
+| Twilio-Bestätigung schlägt fehl | ✅ PASS | Worker erfolgt trotzdem als `processed` (Unit-Test #9) |
+| Sehr lange Audio-Datei (> 10 min) | ❌ FAIL | BUG-2: Whisper wird trotzdem aufgerufen, geschätzte Dauer > 600 s, kein Abbruch |
+
+### Erweiterter Security-Audit (Red-Team)
+
+| Prüfung | Befund | Severity |
+|---------|--------|----------|
+| Auth auf `transcription-jobs` GET/PATCH | ✅ Sicher (`requireAdmin`) | — |
+| Auth auf `transcription-worker` POST | ✅ Sicher (`requireAdmin`) | — |
+| Twilio-Webhook validiert Signatur (HMAC-SHA1) | ✅ Sicher (`validateTwilioSignature`) | — |
+| Idempotenz im Webhook (`twilio_message_sid`-Check) | ✅ Vorhanden | — |
+| OPENAI_API_KEY nur server-seitig | ✅ Sicher — `import 'server-only'` aktiv | — |
+| RLS auf `transcription_jobs` aktiviert | ✅ Sicher — Service-Rolle + Admin-Read-Only-Policy | — |
+| Foreign Key `incoming_message_id` mit `ON DELETE CASCADE` | ✅ Korrekt — keine Orphan-Jobs | — |
+| Indexes auf `status`, `created_at`, `incoming_message_id` | ✅ Vorhanden | — |
+| **Race Condition: Mehrere Worker-Instanzen ziehen denselben Job** | ⚠️ **BUG-6 (Medium)** — kein atomares `UPDATE ... RETURNING` | Medium |
+| **Kein Rate-Limit auf `transcription-worker` POST** | ⚠️ **BUG-7 (Low)** — Admin könnte Whisper-API durch Spam-Klicks belasten | Low |
+| Eingabe-Validation auf PATCH-Body (`transcript`-Feld) | ✅ Sicher — `typeof body.transcript !== 'string'` blockiert |  — |
+| XSS via `transcript` in Admin-UI | ✅ Sicher — React-Rendering mit `whitespace-pre-wrap` (kein `dangerouslySetInnerHTML`) | — |
+| Path-Traversal via `local_file_path` | ⚠️ **BUG-8 (Low)** — Worker liest die Datei direkt aus `local_file_path` ohne Pfad-Whitelist; bei Manipulation des DB-Eintrags durch Service-Rolle könnten beliebige Server-Files an Whisper gesendet werden. Risiko gering, weil Service-Role nur intern. | Low |
+| Zod-Validation auf PATCH-Body (siehe `.claude/rules/backend.md`) | ⚠️ **BUG-9 (Low)** — Backend-Regel verlangt Zod-Schema, hier wird manuelles `typeof`-Check verwendet. Funktional korrekt, aber Inkonsistenz mit Projekt-Standards. | Low |
+
+---
+
+### Neue Bugs (Re-Test)
+
+#### BUG-6 — Medium: Race Condition im Transcription Worker (mehrfache Verarbeitung)
+
+**Schwere:** Medium
+**Priorität:** P2
+
+**Beschreibung:**
+`runTranscriptionIteration()` wählt Jobs in zwei Schritten:
+1. `SELECT … WHERE status = 'pending' AND attempts < 3` (Read)
+2. `UPDATE … SET status = 'processing'` (Write, im Loop)
+
+Wenn zwei Worker-Instanzen gleichzeitig laufen (z. B. Cron + Admin-Knopf), können beide denselben Job lesen und doppelt verarbeiten. Das führt zu doppelten Whisper-API-Aufrufen (= doppelte Kosten) und doppelten WhatsApp-Bestätigungen.
+
+**Steps to Reproduce:**
+1. POST `/api/admin/whatsapp/transcription-worker` zweimal in schneller Folge.
+2. Beide Worker laden dasselbe Set an pending-Jobs.
+3. Beide rufen für denselben Job die Whisper-API auf.
+
+**Expected:** Atomarer Job-Pickup (z. B. via `UPDATE … WHERE id = ? AND status = 'pending' RETURNING *`).
+**Actual:** Race Condition möglich.
+
+**Fix-Vorschlag:** SQL-Funktion `pick_pending_transcription_job()` analog zu PROJ-8 oder Postgres-Advisory-Lock pro Job-Id.
+
+---
+
+#### BUG-7 — Low: Kein Rate-Limit auf `transcription-worker` POST
+
+**Schwere:** Low
+**Priorität:** P3
+
+**Beschreibung:**
+Der Endpunkt `POST /api/admin/whatsapp/transcription-worker` ist nur durch Admin-Auth geschützt. Ein böswilliger oder kompromittierter Admin könnte den Worker durch Endlos-Loop-Klicks die Whisper-API mit Anfragen fluten und Kosten in die Höhe treiben (kombiniert mit BUG-6 verstärkt sich der Effekt).
+
+**Steps to Reproduce:**
+1. Mit Admin-Session: `for i in {1..100}; do curl -X POST /api/admin/whatsapp/transcription-worker; done`
+2. Alle 100 Requests werden ausgeführt.
+
+**Expected:** Rate-Limit (z. B. max. 5 Worker-Starts pro Minute).
+**Actual:** Unbegrenzt.
+
+**Fix-Vorschlag:** Existierende `withRateLimit`-Middleware (vermutlich aus PROJ-1) anwenden — analog zu Login-Endpunkt.
+
+---
+
+#### BUG-8 — Low: Path-Traversal-Theorie via `local_file_path`
+
+**Schwere:** Low
+**Priorität:** P3
+
+**Beschreibung:**
+`runTranscriptionIteration()` liest die Audio-Datei direkt aus `incoming_messages.local_file_path` ohne zu prüfen, ob der Pfad unter `MEDIA_UPLOAD_PATH` liegt. Aktuell wird der Pfad nur vom Media Worker gesetzt (vertrauenswürdig), aber wenn jemand mit Service-Role-Zugriff einen DB-Eintrag manipuliert (`local_file_path = '/etc/passwd'`), würde der Worker die Datei lesen und an Whisper senden.
+
+**Konsequenz:** Sehr niedriges Risiko in der Praxis, da nur Service-Role schreiben kann. Defense-in-Depth-Verstoß.
+
+**Fix-Vorschlag:** `path.resolve(local_file_path)` muss mit `path.resolve(MEDIA_UPLOAD_PATH)` beginnen — sonst Job ablehnen.
+
+---
+
+#### BUG-9 — Low: PATCH-Endpunkt verwendet `typeof` statt Zod
+
+**Schwere:** Low
+**Priorität:** P3
+
+**Beschreibung:**
+`PATCH /api/admin/whatsapp/transcription-jobs` validiert den Body mit `typeof body.transcript !== 'string'` statt mit Zod-Schema. Funktional korrekt, aber `.claude/rules/backend.md` schreibt vor: „Validate all inputs using Zod schemas before processing".
+
+Außerdem fehlt eine Maximum-Länge auf `transcript` — ein Admin könnte einen 10-MB-String einsenden, was die DB unnötig belastet.
+
+**Fix-Vorschlag:**
+```ts
+const PatchSchema = z.object({
+  incoming_message_id: z.string().uuid(),
+  transcript: z.string().max(50_000),
+})
+```
+
+---
+
+### BUG-Status nach Re-Test
+
+| Bug | Severity | Status nach Re-Test |
+|-----|----------|---------------------|
+| BUG-1 | High | ✅ Behoben (zuvor) |
+| BUG-2 | Medium | ❌ Weiterhin offen — keine Audio-Längen-Prüfung |
+| BUG-3 | Low | ❌ Weiterhin offen — Fragment ohne `key` in `WhatsAppNachrichtenCard.tsx:282` reproduziert |
+| BUG-4 | Low | ❌ Weiterhin offen — `transcript_status DEFAULT 'pending'` für Nicht-Audio-Nachrichten |
+| BUG-5 | Low | ❌ Weiterhin offen — `TranskriptZeile` State-Initialisierung (Z. 101) |
+| BUG-6 | Medium | 🆕 NEU — Race Condition im Worker-Pickup |
+| BUG-7 | Low | 🆕 NEU — Kein Rate-Limit auf `transcription-worker` |
+| BUG-8 | Low | 🆕 NEU — Kein Path-Whitelist auf `local_file_path` |
+| BUG-9 | Low | 🆕 NEU — `typeof` statt Zod im PATCH-Body |
+
+---
+
+### Re-Test Produktionsreif-Entscheidung
+
+**✅ BEREIT — kein Critical/High-Bug**
+
+- BUG-2 (Medium) bleibt offen, aber erzeugt nur Kostenrisiko (kein Sicherheitsproblem).
+- BUG-6 (Medium, neu) ist ebenfalls nur Kosten/Doppelverarbeitung; kein Datenverlust oder Sicherheitsproblem.
+- BUG-7/8/9 (Low, neu) sind Defense-in-Depth-Verbesserungen.
+- Empfehlung: Folge-Ticket für BUG-2 + BUG-6 (Mid-Priority Backlog).
+
+---
+
 ### Acceptance Criteria
 
 | AC | Kriterium | Status | Anmerkung |
