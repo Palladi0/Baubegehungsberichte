@@ -1,8 +1,8 @@
 # PROJ-12: Erweiterte Berichtsvorlagen
 
-## Status: In Review
+## Status: Approved
 **Created:** 2026-04-21
-**Last Updated:** 2026-04-30
+**Last Updated:** 2026-05-04
 
 ## Dependencies
 - Requires: PROJ-5 (Berichtsgenerierung) — Basis-Bericht muss existieren
@@ -228,7 +228,35 @@ PDF steht zum Download bereit
 
 ## QA Test Results
 
-**QA Datum:** 2026-04-30
+### Re-QA 2026-05-04 — Verifikation der Bug-Fixes
+
+**Status:** APPROVED — alle aus der Erst-QA gemeldeten Bugs sind behoben.
+
+#### Verifikation der vorherigen Bugs
+
+| Bug | Schwere | Status |
+|-----|---------|--------|
+| BUG-HIGH-1 — VorlageAuswahl: Stille PATCH-Fehler | High | ✅ BEHOBEN — `handleChange` in [VorlageAuswahl.tsx](src/components/vorlagen/VorlageAuswahl.tsx) Zeilen 36–60 hat jetzt `try/catch`; bei `!res.ok` oder `catch` wird `setAusgewaehlt(vorherig)` aufgerufen und `Vorlage konnte nicht gespeichert werden.` als sichtbarer Fehler-Hinweis (`text-destructive`) angezeigt. |
+| BUG-MED-1 — Lösch-Fehlermeldung außerhalb Dialog-Kontext | Medium | ✅ BEHOBEN — Fehler wird in [VorlagenKarte.tsx](src/components/vorlagen/VorlagenKarte.tsx) Zeile 180–182 nun innerhalb des `AlertDialogContent` als `text-sm text-destructive` angezeigt; Dialog wird nicht mehr geschlossen bei 409-Fehler; Fehler wird beim erneuten Öffnen via `onOpenChange` zurückgesetzt. |
+| BUG-MED-2 — `GET /api/templates` fehlt `.limit()` | Medium | ✅ BEHOBEN — `.limit(100)` ist in [route.ts](src/app/api/templates/route.ts) Zeile 29 ergänzt. Die Unit-Tests reflektieren die Änderung. |
+| BUG-SEC-1 — `GET /api/templates/[id]/logo` ohne Auth | Medium (Security) | ✅ BEHOBEN — `requireAuth()` ist in [route.ts](src/app/api/templates/%5Bid%5D/logo/route.ts) Zeile 26 ergänzt; ohne Session wird 401 mit `Nicht autorisiert` zurückgegeben. |
+
+#### Re-QA Test-Ergebnisse
+
+- **Vitest (Unit):** 353 Tests in 39 Files — alle grün (zuvor 256, jetzt 353; PROJ-9–11 Re-QAs haben weitere Tests hinzugefügt)
+- **Playwright (E2E) PROJ-12:** 48 Tests (Chromium + Mobile Safari) — 6 bestanden (Auth-Redirects), 42 skipped (Auth-Session erforderlich), 0 failed
+- **Vollständige E2E-Suite:** 504 Tests — 154 passed, 350 skipped, 0 failed → keine Regressionen
+- **Code-Inspektion:** Alle vier Bug-Fixes sind tatsächlich im Code und korrekt umgesetzt
+
+#### Production-Ready Entscheidung (Re-QA)
+
+✅ **APPROVED FOR DEPLOYMENT** — alle gemeldeten Bugs sind behoben, keine neuen Bugs gefunden, keine Regressionen, alle Tests grün.
+
+Damit ist PROJ-12 deployment-bereit. Status wird auf **Approved** gesetzt.
+
+---
+
+### Erst-QA 2026-04-30
 **Status:** NOT READY — 1 High + 1 Medium Security Bug
 
 ### Automated Tests
