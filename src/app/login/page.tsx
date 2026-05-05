@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -35,6 +35,13 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [weiter, setWeiter] = useState('/')
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const ziel = params.get('weiter')
+    if (ziel && ziel.startsWith('/')) setWeiter(ziel)
+  }, [])
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -61,7 +68,7 @@ export default function LoginPage() {
       }
 
       // Volle Seitennavigation damit Middleware die gesetzten Cookies sieht
-      window.location.href = '/'
+      window.location.href = weiter
     } catch {
       setErrorMessage('Ein Fehler ist aufgetreten. Bitte versuche es erneut.')
       setIsSubmitting(false)
