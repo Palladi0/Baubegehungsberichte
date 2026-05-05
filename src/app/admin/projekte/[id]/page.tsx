@@ -35,7 +35,8 @@ export default async function AdminProjektDetailPage({ params }: Props) {
     redirect('/login')
   }
 
-  const { data: profile } = await supabase
+  const service = createServiceClient()
+  const { data: profile } = await service
     .from('nutzer_profile')
     .select('rolle, aktiv')
     .eq('id', user.id)
@@ -50,7 +51,6 @@ export default async function AdminProjektDetailPage({ params }: Props) {
   }
 
   const { id } = await params
-  const service = createServiceClient()
 
   const { data: projekt, error } = await service
     .from('projekte')

@@ -44,7 +44,7 @@ export async function Navigation() {
               Begehungen
             </Link>
             <Link
-              href="/projekte"
+              href={isAdmin ? '/admin/projekte' : '/projekte'}
               className="text-muted-foreground hover:text-foreground"
             >
               Projekte

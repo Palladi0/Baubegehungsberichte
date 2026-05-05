@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createServerActionClient } from '@/lib/supabase-server'
+import { createServiceClient } from '@/lib/supabase-service'
 import Link from 'next/link'
 import { ChevronLeft } from 'lucide-react'
 import { VorlagenEditor } from '@/components/vorlagen/VorlagenEditor'
@@ -15,7 +16,8 @@ export default async function NeueVorlagePage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
+  const service = createServiceClient()
+  const { data: profile } = await service
     .from('nutzer_profile')
     .select('rolle, aktiv')
     .eq('id', user.id)

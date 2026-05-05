@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createServerActionClient } from '@/lib/supabase-server'
+import { createServiceClient } from '@/lib/supabase-service'
 import { VorlagenListe } from '@/components/vorlagen/VorlagenListe'
 
 export const dynamic = 'force-dynamic'
@@ -14,7 +15,8 @@ export default async function VorlagenPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
+  const service = createServiceClient()
+  const { data: profile } = await service
     .from('nutzer_profile')
     .select('rolle, aktiv')
     .eq('id', user.id)

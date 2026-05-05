@@ -26,7 +26,8 @@ export default async function VorlageBearbeitenPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase
+  const db = createServiceClient()
+  const { data: profile } = await db
     .from('nutzer_profile')
     .select('rolle, aktiv')
     .eq('id', user.id)
@@ -35,7 +36,6 @@ export default async function VorlageBearbeitenPage({
   if (!profile?.aktiv || profile.rolle !== 'admin') redirect('/')
 
   const { id } = await params
-  const db = createServiceClient()
   const { data: vorlage } = await db
     .from('berichts_vorlagen')
     .select('*')

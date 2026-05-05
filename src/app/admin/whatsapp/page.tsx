@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createServerActionClient } from '@/lib/supabase-server'
+import { createServiceClient } from '@/lib/supabase-service'
 import { WhatsAppNummernCard } from '@/components/whatsapp/WhatsAppNummernCard'
 import { WhatsAppNachrichtenCard } from '@/components/whatsapp/WhatsAppNachrichtenCard'
 import { WebhookUrlCard } from '@/components/whatsapp/WebhookUrlCard'
@@ -26,7 +27,8 @@ export default async function AdminWhatsAppPage() {
     redirect('/login')
   }
 
-  const { data: profile } = await supabase
+  const service = createServiceClient()
+  const { data: profile } = await service
     .from('nutzer_profile')
     .select('rolle, aktiv')
     .eq('id', user.id)

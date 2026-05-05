@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createServerActionClient } from '@/lib/supabase-server'
+import { createServiceClient } from '@/lib/supabase-service'
 import { ProjektlisteCard } from '@/components/projekte/ProjektlisteCard'
 
 export const dynamic = 'force-dynamic'
@@ -19,7 +20,8 @@ export default async function AdminProjektePage() {
     redirect('/login')
   }
 
-  const { data: profile } = await supabase
+  const service = createServiceClient()
+  const { data: profile } = await service
     .from('nutzer_profile')
     .select('rolle, aktiv')
     .eq('id', user.id)
