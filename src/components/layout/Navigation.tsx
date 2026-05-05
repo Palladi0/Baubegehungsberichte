@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import { createServerActionClient } from '@/lib/supabase-server'
+import { createServiceClient } from '@/lib/supabase-service'
 import { LogoutButton } from './LogoutButton'
 
 export async function Navigation() {
@@ -10,7 +11,8 @@ export async function Navigation() {
 
   if (!user) return null
 
-  const { data: profile } = await supabase
+  const service = createServiceClient()
+  const { data: profile } = await service
     .from('nutzer_profile')
     .select('rolle')
     .eq('id', user.id)

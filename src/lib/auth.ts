@@ -1,4 +1,5 @@
 import { createServerActionClient } from './supabase-server'
+import { createServiceClient } from './supabase-service'
 
 export type AuthSuccess = { ok: true; userId: string; email: string; role: string }
 export type AuthFailure = { ok: false; error: string; status: number }
@@ -20,7 +21,8 @@ export async function requireAuth(): Promise<AuthResult> {
     return { ok: false, error: 'Nicht authentifiziert', status: 401 }
   }
 
-  const { data: profile, error: profileError } = await supabase
+  const service = createServiceClient()
+  const { data: profile, error: profileError } = await service
     .from('nutzer_profile')
     .select('rolle, aktiv, gesperrt_bis')
     .eq('id', user.id)
