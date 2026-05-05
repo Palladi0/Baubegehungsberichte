@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createMiddlewareClient } from '@/lib/supabase-middleware'
+import { createClient } from '@supabase/supabase-js'
 
 // Simple in-memory rate limit map — sufficient for single-instance (single-VPS) deployments.
 // In a multi-instance setup this would need a shared store (e.g. Redis). Accepted as-is (BUG-002).
@@ -126,7 +127,12 @@ export async function middleware(request: NextRequest) {
 
   // Admin-only routes need role check
   if (pathname.startsWith('/admin') || pathname.startsWith('/api/admin')) {
-    const { data: profile } = await supabase
+    const service = createClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.SUPABASE_SERVICE_ROLE_KEY!,
+      { auth: { persistSession: false, autoRefreshToken: false } }
+    )
+    const { data: profile } = await service
       .from('nutzer_profile')
       .select('rolle, aktiv')
       .eq('id', user.id)
