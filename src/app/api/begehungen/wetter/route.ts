@@ -76,7 +76,10 @@ export async function GET(request: NextRequest) {
 
   try {
     const datetime = `${datum}T${uhrzeit}:00`
-    const url = `https://api.brightsky.dev/weather?lat=${lat}&lon=${lon}&date=${datetime}&last_date=${datetime}&timezone=Europe/Berlin`
+    const lastDate = new Date(`${datum}T${uhrzeit}:00`)
+    lastDate.setHours(lastDate.getHours() + 1)
+    const lastDatetime = lastDate.toISOString().slice(0, 19)
+    const url = `https://api.brightsky.dev/weather?lat=${lat}&lon=${lon}&date=${datetime}&last_date=${lastDatetime}&timezone=Europe/Berlin`
     const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
 
     if (!res.ok) {
