@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import Anthropic from '@anthropic-ai/sdk'
+import OpenAI from 'openai'
 import { requireAuth } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
@@ -29,7 +29,7 @@ const RequestSchema = z.object({
   freitext: z.string().min(10, 'Text zu kurz für Extraktion'),
 })
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
 
 const SYSTEM_PROMPT = `Du bist ein Assistent, der Baustellenbegehungs-Protokolle analysiert.
 Extrahiere strukturierte Informationen aus dem Text und gib ausschließlich valides JSON zurück — keine Erklärungen, keine Kommentare.
@@ -77,20 +77,16 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const message = await client.messages.create({
-      model: 'claude-sonnet-4-6',
+    const message = await client.chat.completions.create({
+      model: 'gpt-4o-mini',
       max_tokens: 1024,
-      system: SYSTEM_PROMPT,
       messages: [
-        {
-          role: 'user',
-          content: `Analysiere folgenden Text:\n\n${parsed.data.freitext}`,
-        },
+        { role: 'system', content: SYSTEM_PROMPT },
+        { role: 'user', content: `Analysiere folgenden Text:\n\n${parsed.data.freitext}` },
       ],
     })
 
-    const rawText =
-      message.content[0]?.type === 'text' ? message.content[0].text.trim() : ''
+    const rawText = message.choices[0]?.message?.content?.trim() ?? ''
 
     let extraktion: Record<string, unknown> = {}
     try {
